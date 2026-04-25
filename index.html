@@ -1,0 +1,3179 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>TallerPro GT</title>
+  <meta name="theme-color" content="#020617"/>
+  <link rel="manifest" href="manifest.json"/>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
+</head>
+<body style="margin:0;background:#020617">
+  <div id="root"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
+  <script src="https://unpkg.com/lucide-react@0.383.0/dist/umd/lucide-react.min.js"></script>
+
+  <script>
+// ── Mapear globals UMD ───────────────────────────────────────────────────────
+const { useState, useEffect, useMemo, useCallback, createContext, useContext } = React;
+
+const {
+  LayoutDashboard, Users, Car, ClipboardList, Package, FileText,
+  UserCog, BarChart3, Settings, Search, Plus, Edit3, Trash2, X,
+  ChevronRight, ChevronDown, Filter, Download, Upload, AlertTriangle,
+  TrendingUp, Wrench, Clock, CheckCircle2, Moon, Sun, LogOut, Bell,
+  Hammer, Gauge, DollarSign, Calendar, Phone, Mail, MapPin, Tag,
+  ArrowUpRight, ArrowDownRight, Printer, MoreVertical, Check, Save,
+  Truck, Zap, ShieldCheck, Layers, Receipt, PlayCircle, PauseCircle,
+  Activity, Eye, FileDown, RefreshCw
+} = LucideReact;
+
+const {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
+  AreaChart, Area, CartesianGrid, PieChart, Pie, Cell, Legend
+} = Recharts;
+
+const createElement = React.createElement;
+const Fragment = React.Fragment;
+function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
+/* ======================================================================
+   TallerPro GT — Panel administrativo web
+   ====================================================================== */
+
+// ---------- Formatters ----------
+const fmtQ = n => 'Q ' + Number(n || 0).toLocaleString('es-GT', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+});
+const fmtDate = d => {
+  if (!d) return '—';
+  const date = new Date(d);
+  return date.toLocaleDateString('es-GT', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  });
+};
+const fmtDateTime = d => {
+  if (!d) return '—';
+  return new Date(d).toLocaleString('es-GT', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+const uid = () => 'id_' + Math.random().toString(36).slice(2, 11) + Date.now().toString(36);
+const today = () => new Date().toISOString();
+
+// ---------- Storage layer (persistente) ----------
+const store = {
+  async get(key, fallback) {
+    try {
+      const r = {
+        value: localStorage.getItem(key)
+      };
+      return r.value ? JSON.parse(r.value) : fallback;
+    } catch {
+      return fallback;
+    }
+  },
+  async set(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {}
+  }
+};
+
+// ---------- Estados de orden ----------
+const ESTADOS = {
+  pendiente: {
+    label: 'Pendiente',
+    color: 'bg-slate-500/15 text-slate-300 border-slate-500/30',
+    dot: 'bg-slate-400'
+  },
+  diagnostico: {
+    label: 'Diagnóstico',
+    color: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
+    dot: 'bg-sky-400'
+  },
+  en_reparacion: {
+    label: 'En reparación',
+    color: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    dot: 'bg-amber-400'
+  },
+  esperando_repuesto: {
+    label: 'Esp. repuesto',
+    color: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+    dot: 'bg-purple-400'
+  },
+  lista: {
+    label: 'Lista',
+    color: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+    dot: 'bg-emerald-400'
+  },
+  entregada: {
+    label: 'Entregada',
+    color: 'bg-teal-500/15 text-teal-300 border-teal-500/30',
+    dot: 'bg-teal-400'
+  },
+  cancelada: {
+    label: 'Cancelada',
+    color: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+    dot: 'bg-rose-400'
+  }
+};
+const METODOS_PAGO = ['efectivo', 'tarjeta', 'transferencia', 'cheque', 'deposito'];
+
+// ---------- Datos semilla ----------
+const seed = () => {
+  const c1 = uid(),
+    c2 = uid(),
+    c3 = uid(),
+    c4 = uid();
+  const v1 = uid(),
+    v2 = uid(),
+    v3 = uid(),
+    v4 = uid();
+  const i1 = uid(),
+    i2 = uid(),
+    i3 = uid(),
+    i4 = uid(),
+    i5 = uid(),
+    i6 = uid();
+  const e1 = uid(),
+    e2 = uid(),
+    e3 = uid();
+  const now = new Date();
+  const daysAgo = n => new Date(now.getTime() - n * 86400000).toISOString();
+  return {
+    settings: {
+      nombre: 'Mi Taller',
+      nit: '1234567-8',
+      direccion: 'Zona 10, Ciudad de Guatemala',
+      telefono: '2200-0000',
+      email: 'contacto@mitaller.gt',
+      moneda: 'GTQ',
+      iva_pct: 12,
+      tema: 'dark',
+      serieFactura: 'A',
+      ultimoNumeroFactura: 0
+    },
+    clientes: [{
+      id: c1,
+      nombre: 'Juan Pérez Morales',
+      nit: '2345678-9',
+      telefono: '5555-1234',
+      email: 'juan@ejemplo.gt',
+      direccion: 'Zona 15',
+      notas: '',
+      created_at: daysAgo(90)
+    }, {
+      id: c2,
+      nombre: 'María López Castillo',
+      nit: 'CF',
+      telefono: '5555-5678',
+      email: 'maria@ejemplo.gt',
+      direccion: 'Mixco',
+      notas: 'Cliente frecuente',
+      created_at: daysAgo(60)
+    }, {
+      id: c3,
+      nombre: 'Transportes El Sol S.A.',
+      nit: '9876543-2',
+      telefono: '2333-4444',
+      email: 'gerencia@elsol.gt',
+      direccion: 'Zona 12',
+      notas: 'Flota de 8 vehículos',
+      created_at: daysAgo(45)
+    }, {
+      id: c4,
+      nombre: 'Carlos Ramírez',
+      nit: 'CF',
+      telefono: '5555-9999',
+      email: '',
+      direccion: 'Villa Nueva',
+      notas: '',
+      created_at: daysAgo(15)
+    }],
+    vehiculos: [{
+      id: v1,
+      cliente_id: c1,
+      placa: 'P123ABC',
+      marca: 'Toyota',
+      modelo: 'Hilux',
+      anio: 2020,
+      color: 'Blanco',
+      vin: 'MR0FB29G901234567',
+      kilometraje: 68500,
+      tipo_combustible: 'diesel',
+      notas: ''
+    }, {
+      id: v2,
+      cliente_id: c2,
+      placa: 'P456DEF',
+      marca: 'Honda',
+      modelo: 'Civic',
+      anio: 2018,
+      color: 'Gris',
+      vin: '2HGFC2F59JH123456',
+      kilometraje: 95200,
+      tipo_combustible: 'gasolina',
+      notas: 'Cambio de aceite cada 5mil km'
+    }, {
+      id: v3,
+      cliente_id: c3,
+      placa: 'C789GHI',
+      marca: 'Hino',
+      modelo: '300',
+      anio: 2019,
+      color: 'Blanco',
+      vin: '',
+      kilometraje: 180000,
+      tipo_combustible: 'diesel',
+      notas: 'Camión repartidor'
+    }, {
+      id: v4,
+      cliente_id: c4,
+      placa: 'P321JKL',
+      marca: 'Nissan',
+      modelo: 'Sentra',
+      anio: 2016,
+      color: 'Rojo',
+      vin: '',
+      kilometraje: 120300,
+      tipo_combustible: 'gasolina',
+      notas: ''
+    }],
+    empleados: [{
+      id: e1,
+      nombre: 'Pedro Sánchez',
+      rol: 'jefe_taller',
+      telefono: '5555-1111',
+      email: 'pedro@mitaller.gt',
+      comision_pct: 5,
+      activo: true
+    }, {
+      id: e2,
+      nombre: 'Luis Hernández',
+      rol: 'mecanico',
+      telefono: '5555-2222',
+      email: '',
+      comision_pct: 3,
+      activo: true
+    }, {
+      id: e3,
+      nombre: 'Ana García',
+      rol: 'recepcion',
+      telefono: '5555-3333',
+      email: 'ana@mitaller.gt',
+      comision_pct: 0,
+      activo: true
+    }],
+    inventario: [{
+      id: i1,
+      sku: 'AC-001',
+      nombre: 'Aceite Mobil 1 5W-30 4L',
+      categoria: 'Aceites',
+      stock: 12,
+      stock_minimo: 5,
+      precio_compra: 180,
+      precio_venta: 260,
+      ubicacion: 'Estante A-1',
+      activo: true
+    }, {
+      id: i2,
+      sku: 'FA-101',
+      nombre: 'Filtro de aceite Toyota',
+      categoria: 'Filtros',
+      stock: 3,
+      stock_minimo: 6,
+      precio_compra: 45,
+      precio_venta: 85,
+      ubicacion: 'Estante B-2',
+      activo: true
+    }, {
+      id: i3,
+      sku: 'PF-201',
+      nombre: 'Pastillas de freno delanteras genéricas',
+      categoria: 'Frenos',
+      stock: 8,
+      stock_minimo: 4,
+      precio_compra: 120,
+      precio_venta: 210,
+      ubicacion: 'Estante C-1',
+      activo: true
+    }, {
+      id: i4,
+      sku: 'BU-301',
+      nombre: 'Bujía NGK Iridium',
+      categoria: 'Encendido',
+      stock: 20,
+      stock_minimo: 8,
+      precio_compra: 65,
+      precio_venta: 120,
+      ubicacion: 'Estante D-3',
+      activo: true
+    }, {
+      id: i5,
+      sku: 'LL-401',
+      nombre: 'Llanta Bridgestone 195/65 R15',
+      categoria: 'Llantas',
+      stock: 2,
+      stock_minimo: 4,
+      precio_compra: 650,
+      precio_venta: 890,
+      ubicacion: 'Bodega',
+      activo: true
+    }, {
+      id: i6,
+      sku: 'BA-501',
+      nombre: 'Batería 12V 750A',
+      categoria: 'Eléctrico',
+      stock: 6,
+      stock_minimo: 3,
+      precio_compra: 520,
+      precio_venta: 780,
+      ubicacion: 'Estante E-1',
+      activo: true
+    }],
+    ordenes: [{
+      id: uid(),
+      numero: 1001,
+      cliente_id: c1,
+      vehiculo_id: v1,
+      mecanico_id: e1,
+      estado: 'en_reparacion',
+      prioridad: 'normal',
+      fecha_ingreso: daysAgo(2),
+      fecha_entrega_estimada: daysAgo(-1),
+      fecha_entrega: null,
+      kilometraje_ingreso: 68500,
+      descripcion_problema: 'Ruido al frenar y cambio de aceite programado.',
+      diagnostico: 'Pastillas delanteras desgastadas. Requiere cambio.',
+      descuento: 0,
+      items: [{
+        id: uid(),
+        tipo: 'servicio',
+        descripcion: 'Mano de obra: cambio de pastillas',
+        cantidad: 1,
+        precio_unitario: 250,
+        subtotal: 250
+      }, {
+        id: uid(),
+        tipo: 'servicio',
+        descripcion: 'Cambio de aceite',
+        cantidad: 1,
+        precio_unitario: 150,
+        subtotal: 150
+      }, {
+        id: uid(),
+        tipo: 'repuesto',
+        inventario_id: i3,
+        descripcion: 'Pastillas de freno delanteras',
+        cantidad: 1,
+        precio_unitario: 210,
+        subtotal: 210
+      }, {
+        id: uid(),
+        tipo: 'repuesto',
+        inventario_id: i1,
+        descripcion: 'Aceite Mobil 1 5W-30',
+        cantidad: 1,
+        precio_unitario: 260,
+        subtotal: 260
+      }]
+    }, {
+      id: uid(),
+      numero: 1002,
+      cliente_id: c2,
+      vehiculo_id: v2,
+      mecanico_id: e2,
+      estado: 'lista',
+      prioridad: 'normal',
+      fecha_ingreso: daysAgo(1),
+      fecha_entrega_estimada: today(),
+      fecha_entrega: null,
+      kilometraje_ingreso: 95200,
+      descripcion_problema: 'Revisión general de 100,000 km.',
+      diagnostico: 'Todo en orden. Se cambió aceite y filtro.',
+      descuento: 0,
+      items: [{
+        id: uid(),
+        tipo: 'servicio',
+        descripcion: 'Servicio mayor 100,000 km',
+        cantidad: 1,
+        precio_unitario: 450,
+        subtotal: 450
+      }, {
+        id: uid(),
+        tipo: 'repuesto',
+        inventario_id: i1,
+        descripcion: 'Aceite Mobil 1 5W-30',
+        cantidad: 1,
+        precio_unitario: 260,
+        subtotal: 260
+      }]
+    }, {
+      id: uid(),
+      numero: 1003,
+      cliente_id: c3,
+      vehiculo_id: v3,
+      mecanico_id: e1,
+      estado: 'esperando_repuesto',
+      prioridad: 'alta',
+      fecha_ingreso: daysAgo(5),
+      fecha_entrega_estimada: daysAgo(-2),
+      fecha_entrega: null,
+      kilometraje_ingreso: 180000,
+      descripcion_problema: 'Pérdida de potencia, humo negro.',
+      diagnostico: 'Inyector fallando. Se pidió pieza al proveedor.',
+      descuento: 0,
+      items: [{
+        id: uid(),
+        tipo: 'servicio',
+        descripcion: 'Diagnóstico motor diesel',
+        cantidad: 1,
+        precio_unitario: 400,
+        subtotal: 400
+      }]
+    }, {
+      id: uid(),
+      numero: 1000,
+      cliente_id: c4,
+      vehiculo_id: v4,
+      mecanico_id: e2,
+      estado: 'entregada',
+      prioridad: 'normal',
+      fecha_ingreso: daysAgo(8),
+      fecha_entrega_estimada: daysAgo(6),
+      fecha_entrega: daysAgo(6),
+      kilometraje_ingreso: 120300,
+      descripcion_problema: 'Cambio de batería.',
+      diagnostico: 'Batería al final de vida útil.',
+      descuento: 0,
+      items: [{
+        id: uid(),
+        tipo: 'servicio',
+        descripcion: 'Instalación de batería',
+        cantidad: 1,
+        precio_unitario: 100,
+        subtotal: 100
+      }, {
+        id: uid(),
+        tipo: 'repuesto',
+        inventario_id: i6,
+        descripcion: 'Batería 12V 750A',
+        cantidad: 1,
+        precio_unitario: 780,
+        subtotal: 780
+      }]
+    }],
+    facturas: [],
+    pagos: []
+  };
+};
+
+// ---------- Cálculo de totales ----------
+const calcularTotales = (orden, iva_pct = 12) => {
+  const items = orden.items || [];
+  const total_mano_obra = items.filter(i => i.tipo === 'servicio').reduce((s, i) => s + Number(i.subtotal || 0), 0);
+  const total_repuestos = items.filter(i => i.tipo === 'repuesto').reduce((s, i) => s + Number(i.subtotal || 0), 0);
+  const descuento = Number(orden.descuento || 0);
+  const subtotal = total_mano_obra + total_repuestos - descuento;
+  const iva = Math.round(subtotal * (iva_pct / 100) * 100) / 100;
+  const total = Math.round((subtotal + iva) * 100) / 100;
+  return {
+    total_mano_obra,
+    total_repuestos,
+    subtotal,
+    iva,
+    total
+  };
+};
+
+/* ======================================================================
+   COMPONENTES UI REUTILIZABLES
+   ====================================================================== */
+
+const Badge = ({
+  children,
+  className = ''
+}) => /*#__PURE__*/React.createElement("span", {
+  className: `inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border ${className}`
+}, children);
+const StatusBadge = ({
+  estado
+}) => {
+  const s = ESTADOS[estado] || ESTADOS.pendiente;
+  return /*#__PURE__*/React.createElement(Badge, {
+    className: s.color
+  }, /*#__PURE__*/React.createElement("span", {
+    className: `w-1.5 h-1.5 rounded-full ${s.dot}`
+  }), s.label);
+};
+const Button = ({
+  children,
+  variant = 'primary',
+  size = 'md',
+  className = '',
+  ...props
+}) => {
+  const variants = {
+    primary: 'bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold shadow-lg shadow-amber-500/20',
+    secondary: 'bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700',
+    ghost: 'hover:bg-slate-800 text-slate-300',
+    danger: 'bg-rose-600 hover:bg-rose-500 text-white',
+    outline: 'border border-slate-700 hover:border-amber-500/50 hover:bg-amber-500/5 text-slate-200'
+  };
+  const sizes = {
+    sm: 'px-3 py-1.5 text-xs',
+    md: 'px-4 py-2 text-sm',
+    lg: 'px-5 py-2.5 text-sm'
+  };
+  return /*#__PURE__*/React.createElement("button", _extends({
+    className: `inline-flex items-center justify-center gap-2 rounded-md transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed ${variants[variant]} ${sizes[size]} ${className}`
+  }, props), children);
+};
+const Input = ({
+  label,
+  error,
+  className = '',
+  icon: Icon,
+  ...props
+}) => /*#__PURE__*/React.createElement("div", {
+  className: "flex flex-col gap-1.5"
+}, label && /*#__PURE__*/React.createElement("label", {
+  className: "text-xs uppercase tracking-wider font-medium text-slate-400"
+}, label), /*#__PURE__*/React.createElement("div", {
+  className: "relative"
+}, Icon && /*#__PURE__*/React.createElement(Icon, {
+  className: "w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
+}), /*#__PURE__*/React.createElement("input", _extends({
+  className: `w-full bg-slate-900/60 border border-slate-800 rounded-md px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:border-amber-500/50 focus:outline-none focus:ring-1 focus:ring-amber-500/20 ${Icon ? 'pl-9' : ''} ${className}`
+}, props))), error && /*#__PURE__*/React.createElement("span", {
+  className: "text-xs text-rose-400"
+}, error));
+const TextArea = ({
+  label,
+  className = '',
+  ...props
+}) => /*#__PURE__*/React.createElement("div", {
+  className: "flex flex-col gap-1.5"
+}, label && /*#__PURE__*/React.createElement("label", {
+  className: "text-xs uppercase tracking-wider font-medium text-slate-400"
+}, label), /*#__PURE__*/React.createElement("textarea", _extends({
+  className: `w-full bg-slate-900/60 border border-slate-800 rounded-md px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:border-amber-500/50 focus:outline-none focus:ring-1 focus:ring-amber-500/20 resize-none ${className}`,
+  rows: 3
+}, props)));
+const Select = ({
+  label,
+  options = [],
+  className = '',
+  ...props
+}) => /*#__PURE__*/React.createElement("div", {
+  className: "flex flex-col gap-1.5"
+}, label && /*#__PURE__*/React.createElement("label", {
+  className: "text-xs uppercase tracking-wider font-medium text-slate-400"
+}, label), /*#__PURE__*/React.createElement("select", _extends({
+  className: `w-full bg-slate-900/60 border border-slate-800 rounded-md px-3 py-2 text-sm text-slate-100 focus:border-amber-500/50 focus:outline-none focus:ring-1 focus:ring-amber-500/20 ${className}`
+}, props), options.map(o => /*#__PURE__*/React.createElement("option", {
+  key: o.value,
+  value: o.value
+}, o.label))));
+const Modal = ({
+  open,
+  onClose,
+  title,
+  children,
+  size = 'md',
+  footer
+}) => {
+  if (!open) return null;
+  const sizes = {
+    sm: 'max-w-md',
+    md: 'max-w-xl',
+    lg: 'max-w-3xl',
+    xl: 'max-w-5xl',
+    full: 'max-w-7xl'
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm",
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    className: `bg-slate-950 border border-slate-800 rounded-xl shadow-2xl w-full ${sizes[size]} max-h-[92vh] flex flex-col overflow-hidden`,
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between px-5 py-4 border-b border-slate-800"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "font-display text-lg text-slate-100"
+  }, title), /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    className: "text-slate-500 hover:text-slate-200 transition"
+  }, /*#__PURE__*/React.createElement(X, {
+    className: "w-5 h-5"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "flex-1 overflow-y-auto px-5 py-4"
+  }, children), footer && /*#__PURE__*/React.createElement("div", {
+    className: "px-5 py-3 border-t border-slate-800 bg-slate-900/40 flex justify-end gap-2"
+  }, footer)));
+};
+const Card = ({
+  children,
+  className = ''
+}) => /*#__PURE__*/React.createElement("div", {
+  className: `bg-slate-900/40 border border-slate-800/80 rounded-xl ${className}`
+}, children);
+const EmptyState = ({
+  icon: Icon = Package,
+  title,
+  subtitle,
+  action
+}) => /*#__PURE__*/React.createElement("div", {
+  className: "py-16 flex flex-col items-center text-center"
+}, /*#__PURE__*/React.createElement("div", {
+  className: "w-16 h-16 rounded-full bg-slate-800/50 flex items-center justify-center mb-4"
+}, /*#__PURE__*/React.createElement(Icon, {
+  className: "w-7 h-7 text-slate-500"
+})), /*#__PURE__*/React.createElement("div", {
+  className: "font-display text-lg text-slate-200"
+}, title), subtitle && /*#__PURE__*/React.createElement("div", {
+  className: "text-sm text-slate-500 mt-1 max-w-sm"
+}, subtitle), action && /*#__PURE__*/React.createElement("div", {
+  className: "mt-5"
+}, action));
+const Toast = ({
+  toast,
+  onClose
+}) => {
+  useEffect(() => {
+    if (toast) {
+      const t = setTimeout(onClose, 3500);
+      return () => clearTimeout(t);
+    }
+  }, [toast, onClose]);
+  if (!toast) return null;
+  const kinds = {
+    success: {
+      cls: 'bg-emerald-500/90 border-emerald-400/60',
+      Icon: CheckCircle2
+    },
+    error: {
+      cls: 'bg-rose-500/90 border-rose-400/60',
+      Icon: AlertTriangle
+    },
+    info: {
+      cls: 'bg-sky-500/90 border-sky-400/60',
+      Icon: Bell
+    }
+  };
+  const {
+    cls,
+    Icon
+  } = kinds[toast.kind] || kinds.info;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "fixed bottom-6 right-6 z-[100] animate-slideIn"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: `${cls} backdrop-blur-sm text-white border rounded-lg shadow-2xl px-4 py-3 flex items-center gap-3 min-w-[260px]`
+  }, /*#__PURE__*/React.createElement(Icon, {
+    className: "w-5 h-5"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "text-sm font-medium"
+  }, toast.msg)));
+};
+
+/* ======================================================================
+   PAGE: DASHBOARD
+   ====================================================================== */
+
+function Dashboard({
+  data,
+  go
+}) {
+  const {
+    ordenes,
+    clientes,
+    inventario,
+    facturas,
+    settings
+  } = data;
+  const kpis = useMemo(() => {
+    const activas = ordenes.filter(o => !['entregada', 'cancelada'].includes(o.estado));
+    const stockBajo = inventario.filter(i => i.stock <= i.stock_minimo);
+    const now = new Date();
+    const mesActual = now.getMonth();
+    const anioActual = now.getFullYear();
+    const ingresosMes = ordenes.filter(o => {
+      if (o.estado !== 'entregada' || !o.fecha_entrega) return false;
+      const d = new Date(o.fecha_entrega);
+      return d.getMonth() === mesActual && d.getFullYear() === anioActual;
+    }).reduce((s, o) => s + calcularTotales(o, settings.iva_pct).total, 0);
+    const clientesNuevos = clientes.filter(c => {
+      const d = new Date(c.created_at || 0);
+      return d.getMonth() === mesActual && d.getFullYear() === anioActual;
+    }).length;
+    return {
+      activas: activas.length,
+      stockBajo: stockBajo.length,
+      ingresosMes,
+      clientesNuevos
+    };
+  }, [ordenes, clientes, inventario, settings.iva_pct]);
+  const serieIngresos = useMemo(() => {
+    const dias = [];
+    const hoy = new Date();
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      const total = ordenes.filter(o => o.estado === 'entregada' && o.fecha_entrega && o.fecha_entrega.slice(0, 10) === key).reduce((s, o) => s + calcularTotales(o, settings.iva_pct).total, 0);
+      dias.push({
+        dia: d.toLocaleDateString('es-GT', {
+          day: '2-digit',
+          month: 'short'
+        }),
+        total: Math.round(total)
+      });
+    }
+    return dias;
+  }, [ordenes, settings.iva_pct]);
+  const distribucionEstados = useMemo(() => {
+    const counts = {};
+    ordenes.forEach(o => {
+      counts[o.estado] = (counts[o.estado] || 0) + 1;
+    });
+    return Object.entries(counts).map(([k, v]) => ({
+      name: ESTADOS[k]?.label || k,
+      value: v,
+      key: k
+    }));
+  }, [ordenes]);
+  const COLORS_PIE = ['#94a3b8', '#38bdf8', '#f59e0b', '#a855f7', '#10b981', '#14b8a6', '#f43f5e'];
+  const ordenesRecientes = useMemo(() => [...ordenes].sort((a, b) => new Date(b.fecha_ingreso) - new Date(a.fecha_ingreso)).slice(0, 5), [ordenes]);
+  const stockCritico = useMemo(() => inventario.filter(i => i.stock <= i.stock_minimo).slice(0, 5), [inventario]);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "space-y-6"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap justify-between items-end gap-4"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs uppercase tracking-[0.2em] text-amber-500/80 mb-1"
+  }, "Panel principal"), /*#__PURE__*/React.createElement("h1", {
+    className: "font-display text-4xl text-slate-100 tracking-tight"
+  }, "Buen d\xEDa, ", settings.nombre), /*#__PURE__*/React.createElement("p", {
+    className: "text-sm text-slate-500 mt-1"
+  }, "Resumen operativo \u2014 ", fmtDate(today()))), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2"
+  }, /*#__PURE__*/React.createElement(Button, {
+    variant: "secondary",
+    onClick: () => go('ordenes', {
+      nuevo: true
+    })
+  }, /*#__PURE__*/React.createElement(Plus, {
+    className: "w-4 h-4"
+  }), " Nueva orden"))), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"
+  }, /*#__PURE__*/React.createElement(KpiCard, {
+    label: "\xD3rdenes activas",
+    value: kpis.activas,
+    icon: Wrench,
+    accent: "amber",
+    sub: "En el taller ahora",
+    onClick: () => go('ordenes')
+  }), /*#__PURE__*/React.createElement(KpiCard, {
+    label: "Ingresos del mes",
+    value: fmtQ(kpis.ingresosMes),
+    icon: DollarSign,
+    accent: "emerald",
+    sub: "\xD3rdenes entregadas",
+    onClick: () => go('reportes')
+  }), /*#__PURE__*/React.createElement(KpiCard, {
+    label: "Stock bajo",
+    value: kpis.stockBajo,
+    icon: AlertTriangle,
+    accent: "rose",
+    sub: "Requieren compra",
+    onClick: () => go('inventario')
+  }), /*#__PURE__*/React.createElement(KpiCard, {
+    label: "Clientes nuevos",
+    value: kpis.clientesNuevos,
+    icon: Users,
+    accent: "sky",
+    sub: "Este mes",
+    onClick: () => go('clientes')
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-1 lg:grid-cols-3 gap-4"
+  }, /*#__PURE__*/React.createElement(Card, {
+    className: "lg:col-span-2 p-5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-4"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs uppercase tracking-wider text-slate-500"
+  }, "Ingresos"), /*#__PURE__*/React.createElement("div", {
+    className: "font-display text-lg text-slate-100"
+  }, "\xDAltimos 14 d\xEDas")), /*#__PURE__*/React.createElement(Badge, {
+    className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+  }, /*#__PURE__*/React.createElement(TrendingUp, {
+    className: "w-3 h-3"
+  }), " en l\xEDnea")), /*#__PURE__*/React.createElement("div", {
+    className: "h-64"
+  }, /*#__PURE__*/React.createElement(ResponsiveContainer, {
+    width: "100%",
+    height: "100%"
+  }, /*#__PURE__*/React.createElement(AreaChart, {
+    data: serieIngresos,
+    margin: {
+      top: 10,
+      right: 10,
+      left: 0,
+      bottom: 0
+    }
+  }, /*#__PURE__*/React.createElement("defs", null, /*#__PURE__*/React.createElement("linearGradient", {
+    id: "colorAmber",
+    x1: "0",
+    y1: "0",
+    x2: "0",
+    y2: "1"
+  }, /*#__PURE__*/React.createElement("stop", {
+    offset: "0%",
+    stopColor: "#f59e0b",
+    stopOpacity: 0.4
+  }), /*#__PURE__*/React.createElement("stop", {
+    offset: "100%",
+    stopColor: "#f59e0b",
+    stopOpacity: 0
+  }))), /*#__PURE__*/React.createElement(CartesianGrid, {
+    strokeDasharray: "3 3",
+    stroke: "#1e293b",
+    vertical: false
+  }), /*#__PURE__*/React.createElement(XAxis, {
+    dataKey: "dia",
+    stroke: "#64748b",
+    fontSize: 11,
+    tickLine: false,
+    axisLine: false
+  }), /*#__PURE__*/React.createElement(YAxis, {
+    stroke: "#64748b",
+    fontSize: 11,
+    tickLine: false,
+    axisLine: false,
+    tickFormatter: v => `Q${v / 1000 >= 1 ? (v / 1000).toFixed(0) + 'k' : v}`
+  }), /*#__PURE__*/React.createElement(Tooltip, {
+    contentStyle: {
+      background: '#0f172a',
+      border: '1px solid #334155',
+      borderRadius: 8,
+      fontSize: 12
+    },
+    labelStyle: {
+      color: '#cbd5e1'
+    },
+    formatter: v => [fmtQ(v), 'Ingreso']
+  }), /*#__PURE__*/React.createElement(Area, {
+    type: "monotone",
+    dataKey: "total",
+    stroke: "#f59e0b",
+    strokeWidth: 2,
+    fill: "url(#colorAmber)"
+  }))))), /*#__PURE__*/React.createElement(Card, {
+    className: "p-5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs uppercase tracking-wider text-slate-500"
+  }, "\xD3rdenes"), /*#__PURE__*/React.createElement("div", {
+    className: "font-display text-lg text-slate-100"
+  }, "Por estado")), /*#__PURE__*/React.createElement("div", {
+    className: "h-52"
+  }, /*#__PURE__*/React.createElement(ResponsiveContainer, {
+    width: "100%",
+    height: "100%"
+  }, /*#__PURE__*/React.createElement(PieChart, null, /*#__PURE__*/React.createElement(Pie, {
+    data: distribucionEstados,
+    cx: "50%",
+    cy: "50%",
+    innerRadius: 50,
+    outerRadius: 80,
+    paddingAngle: 2,
+    dataKey: "value"
+  }, distribucionEstados.map((_, i) => /*#__PURE__*/React.createElement(Cell, {
+    key: i,
+    fill: COLORS_PIE[i % COLORS_PIE.length]
+  }))), /*#__PURE__*/React.createElement(Tooltip, {
+    contentStyle: {
+      background: '#0f172a',
+      border: '1px solid #334155',
+      borderRadius: 8,
+      fontSize: 12
+    }
+  })))), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-1.5 mt-2"
+  }, distribucionEstados.map((d, i) => /*#__PURE__*/React.createElement("div", {
+    key: d.key,
+    className: "flex justify-between items-center text-xs"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2 text-slate-400"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "w-2 h-2 rounded-full",
+    style: {
+      background: COLORS_PIE[i % COLORS_PIE.length]
+    }
+  }), d.name), /*#__PURE__*/React.createElement("span", {
+    className: "font-mono text-slate-200"
+  }, d.value)))))), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-1 lg:grid-cols-2 gap-4"
+  }, /*#__PURE__*/React.createElement(Card, {
+    className: "p-5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex justify-between items-center mb-4"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs uppercase tracking-wider text-slate-500"
+  }, "Actividad"), /*#__PURE__*/React.createElement("div", {
+    className: "font-display text-lg text-slate-100"
+  }, "\xD3rdenes recientes")), /*#__PURE__*/React.createElement("button", {
+    onClick: () => go('ordenes'),
+    className: "text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1"
+  }, "Ver todas ", /*#__PURE__*/React.createElement(ChevronRight, {
+    className: "w-3 h-3"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-2"
+  }, ordenesRecientes.map(o => {
+    const cli = clientes.find(c => c.id === o.cliente_id);
+    const veh = data.vehiculos.find(v => v.id === o.vehiculo_id);
+    return /*#__PURE__*/React.createElement("div", {
+      key: o.id,
+      className: "flex items-center justify-between p-3 rounded-lg bg-slate-900/40 border border-slate-800/60 hover:border-amber-500/30 transition cursor-pointer",
+      onClick: () => go('ordenes', {
+        open: o.id
+      })
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex-1 min-w-0"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center gap-2"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "font-mono text-xs text-amber-400"
+    }, "OT-", o.numero), /*#__PURE__*/React.createElement(StatusBadge, {
+      estado: o.estado
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "text-sm text-slate-200 mt-1 truncate"
+    }, cli?.nombre), /*#__PURE__*/React.createElement("div", {
+      className: "text-xs text-slate-500 font-mono"
+    }, veh?.placa, " \xB7 ", veh?.marca, " ", veh?.modelo)), /*#__PURE__*/React.createElement("div", {
+      className: "text-right ml-3"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "font-mono text-sm text-slate-200"
+    }, fmtQ(calcularTotales(o, settings.iva_pct).total)), /*#__PURE__*/React.createElement("div", {
+      className: "text-[10px] text-slate-500"
+    }, fmtDate(o.fecha_ingreso))));
+  }))), /*#__PURE__*/React.createElement(Card, {
+    className: "p-5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex justify-between items-center mb-4"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs uppercase tracking-wider text-rose-400/80"
+  }, "Alertas"), /*#__PURE__*/React.createElement("div", {
+    className: "font-display text-lg text-slate-100"
+  }, "Stock cr\xEDtico")), /*#__PURE__*/React.createElement("button", {
+    onClick: () => go('inventario'),
+    className: "text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1"
+  }, "Ver inventario ", /*#__PURE__*/React.createElement(ChevronRight, {
+    className: "w-3 h-3"
+  }))), stockCritico.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, {
+    icon: ShieldCheck,
+    title: "Todo bajo control",
+    subtitle: "Ning\xFAn \xEDtem por debajo del m\xEDnimo."
+  }) : /*#__PURE__*/React.createElement("div", {
+    className: "space-y-2"
+  }, stockCritico.map(i => /*#__PURE__*/React.createElement("div", {
+    key: i.id,
+    className: "flex items-center justify-between p-3 rounded-lg bg-rose-500/5 border border-rose-500/20"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex-1 min-w-0"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm text-slate-200 truncate"
+  }, i.nombre), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs text-slate-500 font-mono"
+  }, i.sku, " \xB7 ", i.categoria)), /*#__PURE__*/React.createElement("div", {
+    className: "text-right"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-mono text-sm text-rose-300"
+  }, i.stock, " / ", i.stock_minimo), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] text-slate-500"
+  }, "stock / m\xEDnimo"))))))));
+}
+function KpiCard({
+  label,
+  value,
+  icon: Icon,
+  accent = 'amber',
+  sub,
+  onClick
+}) {
+  const accents = {
+    amber: {
+      ring: 'hover:border-amber-500/30',
+      icon: 'text-amber-400 bg-amber-500/10'
+    },
+    emerald: {
+      ring: 'hover:border-emerald-500/30',
+      icon: 'text-emerald-400 bg-emerald-500/10'
+    },
+    rose: {
+      ring: 'hover:border-rose-500/30',
+      icon: 'text-rose-400 bg-rose-500/10'
+    },
+    sky: {
+      ring: 'hover:border-sky-500/30',
+      icon: 'text-sky-400 bg-sky-500/10'
+    }
+  };
+  const a = accents[accent];
+  return /*#__PURE__*/React.createElement("button", {
+    onClick: onClick,
+    className: `text-left bg-slate-900/40 border border-slate-800/80 rounded-xl p-5 transition-all ${a.ring} hover:bg-slate-900/60 group`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex justify-between items-start"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs uppercase tracking-wider text-slate-500"
+  }, label), /*#__PURE__*/React.createElement("div", {
+    className: `w-9 h-9 rounded-lg flex items-center justify-center ${a.icon}`
+  }, /*#__PURE__*/React.createElement(Icon, {
+    className: "w-4 h-4"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "font-display text-3xl text-slate-100 mt-3 tracking-tight"
+  }, value), sub && /*#__PURE__*/React.createElement("div", {
+    className: "text-xs text-slate-500 mt-1"
+  }, sub));
+}
+
+/* ======================================================================
+   PAGE: CLIENTES
+   ====================================================================== */
+
+function Clientes({
+  data,
+  update,
+  toast
+}) {
+  const [q, setQ] = useState('');
+  const [editing, setEditing] = useState(null);
+  const filtered = useMemo(() => {
+    const s = q.toLowerCase();
+    return data.clientes.filter(c => !q || c.nombre.toLowerCase().includes(s) || (c.nit || '').toLowerCase().includes(s) || (c.telefono || '').includes(s));
+  }, [data.clientes, q]);
+  const save = cli => {
+    const exists = data.clientes.find(c => c.id === cli.id);
+    const next = exists ? data.clientes.map(c => c.id === cli.id ? {
+      ...c,
+      ...cli
+    } : c) : [...data.clientes, {
+      ...cli,
+      id: uid(),
+      created_at: today()
+    }];
+    update({
+      clientes: next
+    });
+    setEditing(null);
+    toast('success', exists ? 'Cliente actualizado' : 'Cliente creado');
+  };
+  const remove = id => {
+    if (!confirm('¿Eliminar este cliente? Los vehículos asociados no se borrarán pero quedarán huérfanos.')) return;
+    update({
+      clientes: data.clientes.filter(c => c.id !== id)
+    });
+    toast('success', 'Cliente eliminado');
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "space-y-5"
+  }, /*#__PURE__*/React.createElement(PageHeader, {
+    kicker: "Directorio",
+    title: "Clientes",
+    subtitle: `${data.clientes.length} contactos registrados`,
+    actions: /*#__PURE__*/React.createElement(Button, {
+      onClick: () => setEditing({})
+    }, /*#__PURE__*/React.createElement(Plus, {
+      className: "w-4 h-4"
+    }), " Nuevo cliente")
+  }), /*#__PURE__*/React.createElement(Card, {
+    className: "overflow-hidden"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "p-4 border-b border-slate-800"
+  }, /*#__PURE__*/React.createElement(Input, {
+    icon: Search,
+    placeholder: "Buscar por nombre, NIT o tel\xE9fono...",
+    value: q,
+    onChange: e => setQ(e.target.value)
+  })), filtered.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, {
+    icon: Users,
+    title: "Sin clientes",
+    subtitle: "Agrega tu primer cliente para comenzar.",
+    action: /*#__PURE__*/React.createElement(Button, {
+      onClick: () => setEditing({})
+    }, /*#__PURE__*/React.createElement(Plus, {
+      className: "w-4 h-4"
+    }), " Nuevo cliente")
+  }) : /*#__PURE__*/React.createElement("div", {
+    className: "overflow-x-auto"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "w-full text-sm"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+    className: "text-left text-xs uppercase tracking-wider text-slate-500 bg-slate-900/40"
+  }, /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3"
+  }, "Nombre"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3"
+  }, "NIT"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3"
+  }, "Tel\xE9fono"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3"
+  }, "Email"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3"
+  }, "Veh\xEDculos"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3 text-right"
+  }, "Acciones"))), /*#__PURE__*/React.createElement("tbody", null, filtered.map(c => {
+    const nVeh = data.vehiculos.filter(v => v.cliente_id === c.id).length;
+    return /*#__PURE__*/React.createElement("tr", {
+      key: c.id,
+      className: "border-t border-slate-800/60 hover:bg-slate-900/40 transition"
+    }, /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 text-slate-100 font-medium"
+    }, c.nombre), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 font-mono text-slate-400"
+    }, c.nit || '—'), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 text-slate-300"
+    }, c.telefono || '—'), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 text-slate-400 text-xs"
+    }, c.email || '—'), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3"
+    }, /*#__PURE__*/React.createElement(Badge, {
+      className: "border-slate-700 bg-slate-800 text-slate-300"
+    }, nVeh)), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 text-right"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex justify-end gap-1"
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setEditing(c),
+      className: "p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-amber-400"
+    }, /*#__PURE__*/React.createElement(Edit3, {
+      className: "w-4 h-4"
+    })), /*#__PURE__*/React.createElement("button", {
+      onClick: () => remove(c.id),
+      className: "p-1.5 rounded hover:bg-rose-500/10 text-slate-400 hover:text-rose-400"
+    }, /*#__PURE__*/React.createElement(Trash2, {
+      className: "w-4 h-4"
+    })))));
+  }))))), editing && /*#__PURE__*/React.createElement(ClienteForm, {
+    cliente: editing,
+    onSave: save,
+    onClose: () => setEditing(null)
+  }));
+}
+function ClienteForm({
+  cliente,
+  onSave,
+  onClose
+}) {
+  const [f, setF] = useState({
+    nombre: cliente.nombre || '',
+    nit: cliente.nit || '',
+    dpi: cliente.dpi || '',
+    telefono: cliente.telefono || '',
+    email: cliente.email || '',
+    direccion: cliente.direccion || '',
+    notas: cliente.notas || '',
+    id: cliente.id
+  });
+  const set = k => e => setF({
+    ...f,
+    [k]: e.target.value
+  });
+  const submit = () => {
+    if (!f.nombre.trim()) return alert('Nombre requerido');
+    onSave(f);
+  };
+  return /*#__PURE__*/React.createElement(Modal, {
+    open: true,
+    onClose: onClose,
+    title: cliente.id ? 'Editar cliente' : 'Nuevo cliente',
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Button, {
+      variant: "ghost",
+      onClick: onClose
+    }, "Cancelar"), /*#__PURE__*/React.createElement(Button, {
+      onClick: submit
+    }, /*#__PURE__*/React.createElement(Save, {
+      className: "w-4 h-4"
+    }), " Guardar"))
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-2 gap-4"
+  }, /*#__PURE__*/React.createElement(Input, {
+    label: "Nombre completo *",
+    value: f.nombre,
+    onChange: set('nombre')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "NIT",
+    value: f.nit,
+    onChange: set('nit'),
+    placeholder: "1234567-8 o CF"
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "DPI",
+    value: f.dpi,
+    onChange: set('dpi')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Tel\xE9fono",
+    value: f.telefono,
+    onChange: set('telefono')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Email",
+    type: "email",
+    value: f.email,
+    onChange: set('email')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Direcci\xF3n",
+    value: f.direccion,
+    onChange: set('direccion')
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "md:col-span-2"
+  }, /*#__PURE__*/React.createElement(TextArea, {
+    label: "Notas",
+    value: f.notas,
+    onChange: set('notas')
+  }))));
+}
+
+/* ======================================================================
+   PAGE: VEHICULOS
+   ====================================================================== */
+
+function Vehiculos({
+  data,
+  update,
+  toast
+}) {
+  const [q, setQ] = useState('');
+  const [editing, setEditing] = useState(null);
+  const filtered = useMemo(() => {
+    const s = q.toLowerCase();
+    return data.vehiculos.filter(v => {
+      const cli = data.clientes.find(c => c.id === v.cliente_id);
+      return !q || v.placa.toLowerCase().includes(s) || v.marca.toLowerCase().includes(s) || v.modelo.toLowerCase().includes(s) || cli?.nombre.toLowerCase().includes(s);
+    });
+  }, [data.vehiculos, data.clientes, q]);
+  const save = veh => {
+    const exists = data.vehiculos.find(v => v.id === veh.id);
+    const next = exists ? data.vehiculos.map(v => v.id === veh.id ? {
+      ...v,
+      ...veh
+    } : v) : [...data.vehiculos, {
+      ...veh,
+      id: uid()
+    }];
+    update({
+      vehiculos: next
+    });
+    setEditing(null);
+    toast('success', exists ? 'Vehículo actualizado' : 'Vehículo agregado');
+  };
+  const remove = id => {
+    if (!confirm('¿Eliminar este vehículo?')) return;
+    update({
+      vehiculos: data.vehiculos.filter(v => v.id !== id)
+    });
+    toast('success', 'Vehículo eliminado');
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "space-y-5"
+  }, /*#__PURE__*/React.createElement(PageHeader, {
+    kicker: "Flota",
+    title: "Veh\xEDculos",
+    subtitle: `${data.vehiculos.length} vehículos en el sistema`,
+    actions: /*#__PURE__*/React.createElement(Button, {
+      onClick: () => setEditing({})
+    }, /*#__PURE__*/React.createElement(Plus, {
+      className: "w-4 h-4"
+    }), " Nuevo veh\xEDculo")
+  }), /*#__PURE__*/React.createElement(Card, {
+    className: "overflow-hidden"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "p-4 border-b border-slate-800"
+  }, /*#__PURE__*/React.createElement(Input, {
+    icon: Search,
+    placeholder: "Buscar placa, marca, modelo o cliente...",
+    value: q,
+    onChange: e => setQ(e.target.value)
+  })), filtered.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, {
+    icon: Car,
+    title: "Sin veh\xEDculos",
+    subtitle: "Registra el primer veh\xEDculo.",
+    action: /*#__PURE__*/React.createElement(Button, {
+      onClick: () => setEditing({})
+    }, /*#__PURE__*/React.createElement(Plus, {
+      className: "w-4 h-4"
+    }), " Nuevo veh\xEDculo")
+  }) : /*#__PURE__*/React.createElement("div", {
+    className: "overflow-x-auto"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "w-full text-sm"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+    className: "text-left text-xs uppercase tracking-wider text-slate-500 bg-slate-900/40"
+  }, /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3"
+  }, "Placa"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3"
+  }, "Marca / Modelo"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3"
+  }, "A\xF1o"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3"
+  }, "Cliente"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3"
+  }, "Kilometraje"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3"
+  }, "Combustible"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3 text-right"
+  }, "Acciones"))), /*#__PURE__*/React.createElement("tbody", null, filtered.map(v => {
+    const cli = data.clientes.find(c => c.id === v.cliente_id);
+    return /*#__PURE__*/React.createElement("tr", {
+      key: v.id,
+      className: "border-t border-slate-800/60 hover:bg-slate-900/40 transition"
+    }, /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 font-mono text-amber-400 font-semibold"
+    }, v.placa), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 text-slate-100"
+    }, /*#__PURE__*/React.createElement("div", null, v.marca), /*#__PURE__*/React.createElement("div", {
+      className: "text-xs text-slate-500"
+    }, v.modelo)), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 font-mono text-slate-400"
+    }, v.anio || '—'), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 text-slate-300"
+    }, cli?.nombre || /*#__PURE__*/React.createElement("span", {
+      className: "text-slate-600 italic"
+    }, "sin cliente")), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 font-mono text-slate-400"
+    }, v.kilometraje?.toLocaleString() || '—'), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 text-xs uppercase tracking-wider text-slate-500"
+    }, v.tipo_combustible || '—'), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 text-right"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex justify-end gap-1"
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setEditing(v),
+      className: "p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-amber-400"
+    }, /*#__PURE__*/React.createElement(Edit3, {
+      className: "w-4 h-4"
+    })), /*#__PURE__*/React.createElement("button", {
+      onClick: () => remove(v.id),
+      className: "p-1.5 rounded hover:bg-rose-500/10 text-slate-400 hover:text-rose-400"
+    }, /*#__PURE__*/React.createElement(Trash2, {
+      className: "w-4 h-4"
+    })))));
+  }))))), editing && /*#__PURE__*/React.createElement(VehiculoForm, {
+    vehiculo: editing,
+    clientes: data.clientes,
+    onSave: save,
+    onClose: () => setEditing(null)
+  }));
+}
+function VehiculoForm({
+  vehiculo,
+  clientes,
+  onSave,
+  onClose
+}) {
+  const [f, setF] = useState({
+    placa: vehiculo.placa || '',
+    marca: vehiculo.marca || '',
+    modelo: vehiculo.modelo || '',
+    anio: vehiculo.anio || '',
+    color: vehiculo.color || '',
+    vin: vehiculo.vin || '',
+    kilometraje: vehiculo.kilometraje || 0,
+    tipo_combustible: vehiculo.tipo_combustible || 'gasolina',
+    cliente_id: vehiculo.cliente_id || clientes[0]?.id || '',
+    notas: vehiculo.notas || '',
+    id: vehiculo.id
+  });
+  const set = k => e => setF({
+    ...f,
+    [k]: e.target.value
+  });
+  const submit = () => {
+    if (!f.placa.trim() || !f.marca.trim() || !f.modelo.trim()) return alert('Placa, marca y modelo son requeridos');
+    onSave({
+      ...f,
+      placa: f.placa.toUpperCase(),
+      anio: Number(f.anio) || null,
+      kilometraje: Number(f.kilometraje) || 0
+    });
+  };
+  return /*#__PURE__*/React.createElement(Modal, {
+    open: true,
+    onClose: onClose,
+    title: vehiculo.id ? 'Editar vehículo' : 'Nuevo vehículo',
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Button, {
+      variant: "ghost",
+      onClick: onClose
+    }, "Cancelar"), /*#__PURE__*/React.createElement(Button, {
+      onClick: submit
+    }, /*#__PURE__*/React.createElement(Save, {
+      className: "w-4 h-4"
+    }), " Guardar"))
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-2 gap-4"
+  }, /*#__PURE__*/React.createElement(Input, {
+    label: "Placa *",
+    value: f.placa,
+    onChange: set('placa'),
+    className: "font-mono uppercase"
+  }), /*#__PURE__*/React.createElement(Select, {
+    label: "Cliente *",
+    options: clientes.map(c => ({
+      value: c.id,
+      label: c.nombre
+    })),
+    value: f.cliente_id,
+    onChange: set('cliente_id')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Marca *",
+    value: f.marca,
+    onChange: set('marca')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Modelo *",
+    value: f.modelo,
+    onChange: set('modelo')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "A\xF1o",
+    type: "number",
+    value: f.anio,
+    onChange: set('anio')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Color",
+    value: f.color,
+    onChange: set('color')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "VIN / Chasis",
+    value: f.vin,
+    onChange: set('vin'),
+    className: "font-mono"
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Kilometraje",
+    type: "number",
+    value: f.kilometraje,
+    onChange: set('kilometraje')
+  }), /*#__PURE__*/React.createElement(Select, {
+    label: "Combustible",
+    options: [{
+      value: 'gasolina',
+      label: 'Gasolina'
+    }, {
+      value: 'diesel',
+      label: 'Diesel'
+    }, {
+      value: 'electrico',
+      label: 'Eléctrico'
+    }, {
+      value: 'hibrido',
+      label: 'Híbrido'
+    }, {
+      value: 'gas',
+      label: 'Gas'
+    }],
+    value: f.tipo_combustible,
+    onChange: set('tipo_combustible')
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "md:col-span-2"
+  }, /*#__PURE__*/React.createElement(TextArea, {
+    label: "Notas",
+    value: f.notas,
+    onChange: set('notas')
+  }))));
+}
+
+/* ======================================================================
+   PAGE: ORDENES DE TRABAJO
+   ====================================================================== */
+
+function Ordenes({
+  data,
+  update,
+  toast,
+  focus
+}) {
+  const [q, setQ] = useState('');
+  const [filterEstado, setFilterEstado] = useState('todas');
+  const [open, setOpen] = useState(null);
+  useEffect(() => {
+    if (focus?.nuevo) setOpen({
+      nuevo: true
+    });
+    if (focus?.open) {
+      const o = data.ordenes.find(x => x.id === focus.open);
+      if (o) setOpen(o);
+    }
+  }, [focus]);
+  const filtered = useMemo(() => {
+    const s = q.toLowerCase();
+    return data.ordenes.filter(o => filterEstado === 'todas' || o.estado === filterEstado).filter(o => {
+      if (!q) return true;
+      const cli = data.clientes.find(c => c.id === o.cliente_id);
+      const veh = data.vehiculos.find(v => v.id === o.vehiculo_id);
+      return String(o.numero).includes(s) || cli?.nombre.toLowerCase().includes(s) || veh?.placa.toLowerCase().includes(s);
+    }).sort((a, b) => b.numero - a.numero);
+  }, [data.ordenes, data.clientes, data.vehiculos, q, filterEstado]);
+  const saveOrden = orden => {
+    const exists = data.ordenes.find(o => o.id === orden.id);
+    const next = exists ? data.ordenes.map(o => o.id === orden.id ? orden : o) : [...data.ordenes, {
+      ...orden,
+      id: uid(),
+      numero: Math.max(...data.ordenes.map(x => x.numero), 1000) + 1
+    }];
+    update({
+      ordenes: next
+    });
+    setOpen(null);
+    toast('success', exists ? 'Orden actualizada' : 'Orden creada');
+  };
+  const deleteOrden = id => {
+    if (!confirm('¿Eliminar esta orden?')) return;
+    update({
+      ordenes: data.ordenes.filter(o => o.id !== id)
+    });
+    setOpen(null);
+    toast('success', 'Orden eliminada');
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "space-y-5"
+  }, /*#__PURE__*/React.createElement(PageHeader, {
+    kicker: "Operaci\xF3n",
+    title: "\xD3rdenes de trabajo",
+    subtitle: `${data.ordenes.length} órdenes totales · ${data.ordenes.filter(o => !['entregada', 'cancelada'].includes(o.estado)).length} activas`,
+    actions: /*#__PURE__*/React.createElement(Button, {
+      onClick: () => setOpen({
+        nuevo: true
+      })
+    }, /*#__PURE__*/React.createElement(Plus, {
+      className: "w-4 h-4"
+    }), " Nueva orden")
+  }), /*#__PURE__*/React.createElement(Card, {
+    className: "overflow-hidden"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "p-4 border-b border-slate-800 flex flex-wrap gap-3 items-center"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex-1 min-w-[200px]"
+  }, /*#__PURE__*/React.createElement(Input, {
+    icon: Search,
+    placeholder: "Buscar por n\xFAmero, cliente o placa...",
+    value: q,
+    onChange: e => setQ(e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2 flex-wrap"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setFilterEstado('todas'),
+    className: `px-3 py-1.5 text-xs rounded-md border transition ${filterEstado === 'todas' ? 'bg-amber-500/15 border-amber-500/40 text-amber-300' : 'border-slate-800 text-slate-400 hover:border-slate-700'}`
+  }, "Todas"), Object.entries(ESTADOS).map(([k, v]) => /*#__PURE__*/React.createElement("button", {
+    key: k,
+    onClick: () => setFilterEstado(k),
+    className: `px-3 py-1.5 text-xs rounded-md border transition ${filterEstado === k ? v.color : 'border-slate-800 text-slate-400 hover:border-slate-700'}`
+  }, v.label)))), filtered.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, {
+    icon: ClipboardList,
+    title: "Sin \xF3rdenes",
+    subtitle: "Crea la primera orden de trabajo."
+  }) : /*#__PURE__*/React.createElement("div", {
+    className: "divide-y divide-slate-800/60"
+  }, filtered.map(o => {
+    const cli = data.clientes.find(c => c.id === o.cliente_id);
+    const veh = data.vehiculos.find(v => v.id === o.vehiculo_id);
+    const mec = data.empleados.find(e => e.id === o.mecanico_id);
+    const t = calcularTotales(o, data.settings.iva_pct);
+    return /*#__PURE__*/React.createElement("div", {
+      key: o.id,
+      className: "p-4 hover:bg-slate-900/40 transition cursor-pointer",
+      onClick: () => setOpen(o)
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex flex-wrap items-center gap-3 justify-between"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center gap-3 flex-wrap"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "font-mono text-sm text-amber-400 font-semibold"
+    }, "OT-", o.numero), /*#__PURE__*/React.createElement(StatusBadge, {
+      estado: o.estado
+    }), o.prioridad === 'urgente' && /*#__PURE__*/React.createElement(Badge, {
+      className: "bg-rose-500/15 border-rose-500/30 text-rose-300"
+    }, /*#__PURE__*/React.createElement(Zap, {
+      className: "w-3 h-3"
+    }), "urgente"), o.prioridad === 'alta' && /*#__PURE__*/React.createElement(Badge, {
+      className: "bg-orange-500/15 border-orange-500/30 text-orange-300"
+    }, "alta prioridad")), /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center gap-4"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "font-mono text-sm text-slate-200"
+    }, fmtQ(t.total)), /*#__PURE__*/React.createElement("div", {
+      className: "text-xs text-slate-500"
+    }, fmtDate(o.fecha_ingreso)))), /*#__PURE__*/React.createElement("div", {
+      className: "grid grid-cols-1 md:grid-cols-3 gap-2 mt-2 text-sm"
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      className: "text-xs text-slate-500 uppercase tracking-wider"
+    }, "Cliente"), /*#__PURE__*/React.createElement("div", {
+      className: "text-slate-200"
+    }, cli?.nombre || '—')), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      className: "text-xs text-slate-500 uppercase tracking-wider"
+    }, "Veh\xEDculo"), /*#__PURE__*/React.createElement("div", {
+      className: "text-slate-200 font-mono"
+    }, veh?.placa, " ", /*#__PURE__*/React.createElement("span", {
+      className: "text-slate-500 font-sans"
+    }, "\xB7 ", veh?.marca, " ", veh?.modelo))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      className: "text-xs text-slate-500 uppercase tracking-wider"
+    }, "Mec\xE1nico"), /*#__PURE__*/React.createElement("div", {
+      className: "text-slate-200"
+    }, mec?.nombre || '—'))), o.descripcion_problema && /*#__PURE__*/React.createElement("div", {
+      className: "mt-2 text-xs text-slate-500 line-clamp-1"
+    }, o.descripcion_problema));
+  }))), open && /*#__PURE__*/React.createElement(OrdenForm, {
+    orden: open.nuevo ? null : open,
+    data: data,
+    onSave: saveOrden,
+    onDelete: deleteOrden,
+    onClose: () => setOpen(null)
+  }));
+}
+function OrdenForm({
+  orden,
+  data,
+  onSave,
+  onDelete,
+  onClose
+}) {
+  const isNew = !orden;
+  const [f, setF] = useState(() => orden ? {
+    ...orden
+  } : {
+    id: null,
+    cliente_id: data.clientes[0]?.id || '',
+    vehiculo_id: '',
+    mecanico_id: data.empleados[0]?.id || '',
+    estado: 'pendiente',
+    prioridad: 'normal',
+    fecha_ingreso: today(),
+    fecha_entrega_estimada: '',
+    fecha_entrega: null,
+    kilometraje_ingreso: 0,
+    descripcion_problema: '',
+    diagnostico: '',
+    observaciones: '',
+    descuento: 0,
+    items: []
+  });
+  const vehiculosCliente = data.vehiculos.filter(v => v.cliente_id === f.cliente_id);
+  useEffect(() => {
+    if (!f.vehiculo_id && vehiculosCliente[0]) {
+      setF(prev => ({
+        ...prev,
+        vehiculo_id: vehiculosCliente[0].id,
+        kilometraje_ingreso: vehiculosCliente[0].kilometraje || 0
+      }));
+    }
+  }, [f.cliente_id]);
+  const set = (k, v) => setF(prev => ({
+    ...prev,
+    [k]: v
+  }));
+  const addItem = tipo => {
+    set('items', [...(f.items || []), {
+      id: uid(),
+      tipo,
+      descripcion: '',
+      cantidad: 1,
+      precio_unitario: 0,
+      subtotal: 0,
+      inventario_id: null
+    }]);
+  };
+  const updateItem = (id, patch) => {
+    const next = f.items.map(it => {
+      if (it.id !== id) return it;
+      const updated = {
+        ...it,
+        ...patch
+      };
+      updated.subtotal = Math.round((Number(updated.cantidad) || 0) * (Number(updated.precio_unitario) || 0) * 100) / 100;
+      return updated;
+    });
+    set('items', next);
+  };
+  const removeItem = id => set('items', f.items.filter(it => it.id !== id));
+  const agregarDesdeInventario = invId => {
+    const inv = data.inventario.find(i => i.id === invId);
+    if (!inv) return;
+    set('items', [...(f.items || []), {
+      id: uid(),
+      tipo: 'repuesto',
+      inventario_id: invId,
+      descripcion: inv.nombre,
+      cantidad: 1,
+      precio_unitario: inv.precio_venta,
+      subtotal: inv.precio_venta
+    }]);
+  };
+  const totales = calcularTotales(f, data.settings.iva_pct);
+  const submit = () => {
+    if (!f.cliente_id || !f.vehiculo_id) return alert('Cliente y vehículo son requeridos');
+    onSave({
+      ...f
+    });
+  };
+  const cliente = data.clientes.find(c => c.id === f.cliente_id);
+  const vehiculo = data.vehiculos.find(v => v.id === f.vehiculo_id);
+  return /*#__PURE__*/React.createElement(Modal, {
+    open: true,
+    onClose: onClose,
+    title: isNew ? 'Nueva orden de trabajo' : `OT-${orden.numero}`,
+    size: "xl",
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, !isNew && /*#__PURE__*/React.createElement(Button, {
+      variant: "danger",
+      onClick: () => onDelete(orden.id),
+      className: "mr-auto"
+    }, /*#__PURE__*/React.createElement(Trash2, {
+      className: "w-4 h-4"
+    }), " Eliminar"), /*#__PURE__*/React.createElement(Button, {
+      variant: "ghost",
+      onClick: onClose
+    }, "Cancelar"), /*#__PURE__*/React.createElement(Button, {
+      onClick: submit
+    }, /*#__PURE__*/React.createElement(Save, {
+      className: "w-4 h-4"
+    }), " Guardar"))
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "space-y-6"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap gap-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex-1 min-w-[180px]"
+  }, /*#__PURE__*/React.createElement(Select, {
+    label: "Estado",
+    options: Object.entries(ESTADOS).map(([k, v]) => ({
+      value: k,
+      label: v.label
+    })),
+    value: f.estado,
+    onChange: e => set('estado', e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex-1 min-w-[180px]"
+  }, /*#__PURE__*/React.createElement(Select, {
+    label: "Prioridad",
+    options: [{
+      value: 'baja',
+      label: 'Baja'
+    }, {
+      value: 'normal',
+      label: 'Normal'
+    }, {
+      value: 'alta',
+      label: 'Alta'
+    }, {
+      value: 'urgente',
+      label: 'Urgente'
+    }],
+    value: f.prioridad,
+    onChange: e => set('prioridad', e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex-1 min-w-[180px]"
+  }, /*#__PURE__*/React.createElement(Select, {
+    label: "Mec\xE1nico asignado",
+    options: [{
+      value: '',
+      label: '— sin asignar —'
+    }, ...data.empleados.map(e => ({
+      value: e.id,
+      label: e.nombre
+    }))],
+    value: f.mecanico_id || '',
+    onChange: e => set('mecanico_id', e.target.value)
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-2 gap-4"
+  }, /*#__PURE__*/React.createElement(Select, {
+    label: "Cliente *",
+    options: data.clientes.map(c => ({
+      value: c.id,
+      label: c.nombre
+    })),
+    value: f.cliente_id,
+    onChange: e => set('cliente_id', e.target.value)
+  }), /*#__PURE__*/React.createElement(Select, {
+    label: "Veh\xEDculo *",
+    options: vehiculosCliente.length === 0 ? [{
+      value: '',
+      label: 'Este cliente no tiene vehículos'
+    }] : vehiculosCliente.map(v => ({
+      value: v.id,
+      label: `${v.placa} · ${v.marca} ${v.modelo}`
+    })),
+    value: f.vehiculo_id,
+    onChange: e => {
+      const v = data.vehiculos.find(x => x.id === e.target.value);
+      setF(prev => ({
+        ...prev,
+        vehiculo_id: e.target.value,
+        kilometraje_ingreso: v?.kilometraje || 0
+      }));
+    }
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Fecha de ingreso",
+    type: "datetime-local",
+    value: f.fecha_ingreso ? f.fecha_ingreso.slice(0, 16) : '',
+    onChange: e => set('fecha_ingreso', new Date(e.target.value).toISOString())
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Entrega estimada",
+    type: "datetime-local",
+    value: f.fecha_entrega_estimada ? f.fecha_entrega_estimada.slice(0, 16) : '',
+    onChange: e => set('fecha_entrega_estimada', e.target.value ? new Date(e.target.value).toISOString() : null)
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Kilometraje ingreso",
+    type: "number",
+    value: f.kilometraje_ingreso,
+    onChange: e => set('kilometraje_ingreso', Number(e.target.value))
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Descuento (Q)",
+    type: "number",
+    value: f.descuento,
+    onChange: e => set('descuento', Number(e.target.value))
+  })), /*#__PURE__*/React.createElement(TextArea, {
+    label: "Problema reportado por el cliente",
+    value: f.descripcion_problema,
+    onChange: e => set('descripcion_problema', e.target.value)
+  }), /*#__PURE__*/React.createElement(TextArea, {
+    label: "Diagn\xF3stico del taller",
+    value: f.diagnostico || '',
+    onChange: e => set('diagnostico', e.target.value)
+  }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "flex justify-between items-center mb-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs uppercase tracking-wider font-medium text-slate-400"
+  }, "Servicios y repuestos"), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2"
+  }, /*#__PURE__*/React.createElement(Button, {
+    size: "sm",
+    variant: "outline",
+    onClick: () => addItem('servicio')
+  }, /*#__PURE__*/React.createElement(Hammer, {
+    className: "w-3 h-3"
+  }), " Servicio"), /*#__PURE__*/React.createElement(Button, {
+    size: "sm",
+    variant: "outline",
+    onClick: () => addItem('repuesto')
+  }, /*#__PURE__*/React.createElement(Package, {
+    className: "w-3 h-3"
+  }), " Repuesto manual"), /*#__PURE__*/React.createElement(Select, {
+    className: "text-xs",
+    options: [{
+      value: '',
+      label: '+ Desde inventario'
+    }, ...data.inventario.filter(i => i.activo).map(i => ({
+      value: i.id,
+      label: `${i.nombre} · ${fmtQ(i.precio_venta)}`
+    }))],
+    value: "",
+    onChange: e => {
+      if (e.target.value) {
+        agregarDesdeInventario(e.target.value);
+        e.target.value = '';
+      }
+    }
+  }))), !f.items || f.items.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "text-center py-8 text-sm text-slate-500 border border-dashed border-slate-800 rounded-lg"
+  }, "A\xFAn no hay servicios ni repuestos.") : /*#__PURE__*/React.createElement("div", {
+    className: "border border-slate-800 rounded-lg overflow-hidden"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "w-full text-sm"
+  }, /*#__PURE__*/React.createElement("thead", {
+    className: "bg-slate-900/60 text-xs uppercase tracking-wider text-slate-500"
+  }, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2 text-left"
+  }, "Tipo"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2 text-left"
+  }, "Descripci\xF3n"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2 text-right w-20"
+  }, "Cant."), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2 text-right w-28"
+  }, "P. Unit."), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2 text-right w-28"
+  }, "Subtotal"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2 w-10"
+  }))), /*#__PURE__*/React.createElement("tbody", null, f.items.map(it => /*#__PURE__*/React.createElement("tr", {
+    key: it.id,
+    className: "border-t border-slate-800/60"
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, it.tipo === 'servicio' ? /*#__PURE__*/React.createElement(Badge, {
+    className: "border-sky-500/30 bg-sky-500/10 text-sky-300"
+  }, /*#__PURE__*/React.createElement(Hammer, {
+    className: "w-3 h-3"
+  }), "servicio") : /*#__PURE__*/React.createElement(Badge, {
+    className: "border-amber-500/30 bg-amber-500/10 text-amber-300"
+  }, /*#__PURE__*/React.createElement(Package, {
+    className: "w-3 h-3"
+  }), "repuesto")), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "w-full bg-transparent border-0 focus:outline-none focus:ring-0 text-slate-200 text-sm",
+    value: it.descripcion,
+    onChange: e => updateItem(it.id, {
+      descripcion: e.target.value
+    }),
+    placeholder: "Descripci\xF3n..."
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    className: "w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-right font-mono text-sm",
+    value: it.cantidad,
+    onChange: e => updateItem(it.id, {
+      cantidad: Number(e.target.value)
+    })
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    step: "0.01",
+    className: "w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-right font-mono text-sm",
+    value: it.precio_unitario,
+    onChange: e => updateItem(it.id, {
+      precio_unitario: Number(e.target.value)
+    })
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-right font-mono text-slate-200"
+  }, fmtQ(it.subtotal)), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => removeItem(it.id),
+    className: "text-slate-500 hover:text-rose-400"
+  }, /*#__PURE__*/React.createElement(Trash2, {
+    className: "w-4 h-4"
+  }))))))))), /*#__PURE__*/React.createElement("div", {
+    className: "flex justify-end"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "w-full md:w-80 space-y-1.5 text-sm"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex justify-between text-slate-400"
+  }, /*#__PURE__*/React.createElement("span", null, "Mano de obra"), /*#__PURE__*/React.createElement("span", {
+    className: "font-mono"
+  }, fmtQ(totales.total_mano_obra))), /*#__PURE__*/React.createElement("div", {
+    className: "flex justify-between text-slate-400"
+  }, /*#__PURE__*/React.createElement("span", null, "Repuestos"), /*#__PURE__*/React.createElement("span", {
+    className: "font-mono"
+  }, fmtQ(totales.total_repuestos))), Number(f.descuento) > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "flex justify-between text-rose-400"
+  }, /*#__PURE__*/React.createElement("span", null, "Descuento"), /*#__PURE__*/React.createElement("span", {
+    className: "font-mono"
+  }, "-", fmtQ(f.descuento))), /*#__PURE__*/React.createElement("div", {
+    className: "flex justify-between text-slate-400"
+  }, /*#__PURE__*/React.createElement("span", null, "Subtotal"), /*#__PURE__*/React.createElement("span", {
+    className: "font-mono"
+  }, fmtQ(totales.subtotal))), /*#__PURE__*/React.createElement("div", {
+    className: "flex justify-between text-slate-400"
+  }, /*#__PURE__*/React.createElement("span", null, "IVA (", data.settings.iva_pct, "%)"), /*#__PURE__*/React.createElement("span", {
+    className: "font-mono"
+  }, fmtQ(totales.iva))), /*#__PURE__*/React.createElement("div", {
+    className: "flex justify-between text-slate-100 font-display text-lg border-t border-slate-800 pt-2"
+  }, /*#__PURE__*/React.createElement("span", null, "Total"), /*#__PURE__*/React.createElement("span", {
+    className: "font-mono text-amber-400"
+  }, fmtQ(totales.total)))))));
+}
+
+/* ======================================================================
+   PAGE: INVENTARIO
+   ====================================================================== */
+
+function Inventario({
+  data,
+  update,
+  toast
+}) {
+  const [q, setQ] = useState('');
+  const [filtroBajo, setFiltroBajo] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [ajuste, setAjuste] = useState(null);
+  const filtered = useMemo(() => {
+    const s = q.toLowerCase();
+    return data.inventario.filter(i => !filtroBajo || i.stock <= i.stock_minimo).filter(i => !q || i.nombre.toLowerCase().includes(s) || (i.sku || '').toLowerCase().includes(s) || (i.categoria || '').toLowerCase().includes(s));
+  }, [data.inventario, q, filtroBajo]);
+  const save = item => {
+    const exists = data.inventario.find(i => i.id === item.id);
+    const next = exists ? data.inventario.map(i => i.id === item.id ? {
+      ...i,
+      ...item
+    } : i) : [...data.inventario, {
+      ...item,
+      id: uid(),
+      activo: true
+    }];
+    update({
+      inventario: next
+    });
+    setEditing(null);
+    toast('success', exists ? 'Repuesto actualizado' : 'Repuesto agregado');
+  };
+  const aplicarAjuste = ({
+    id,
+    cantidad,
+    tipo,
+    nota
+  }) => {
+    const item = data.inventario.find(i => i.id === id);
+    if (!item) return;
+    const delta = tipo === 'entrada' ? cantidad : -cantidad;
+    const nuevoStock = Math.max(0, item.stock + delta);
+    update({
+      inventario: data.inventario.map(i => i.id === id ? {
+        ...i,
+        stock: nuevoStock
+      } : i)
+    });
+    setAjuste(null);
+    toast('success', `Stock actualizado (${nuevoStock} unid.)`);
+  };
+  const valorInventario = useMemo(() => data.inventario.reduce((s, i) => s + Number(i.stock) * Number(i.precio_compra), 0), [data.inventario]);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "space-y-5"
+  }, /*#__PURE__*/React.createElement(PageHeader, {
+    kicker: "Almac\xE9n",
+    title: "Inventario de repuestos",
+    subtitle: `${data.inventario.length} ítems · valor ${fmtQ(valorInventario)}`,
+    actions: /*#__PURE__*/React.createElement(Button, {
+      onClick: () => setEditing({})
+    }, /*#__PURE__*/React.createElement(Plus, {
+      className: "w-4 h-4"
+    }), " Nuevo \xEDtem")
+  }), /*#__PURE__*/React.createElement(Card, {
+    className: "overflow-hidden"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "p-4 border-b border-slate-800 flex flex-wrap gap-3 items-center"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex-1 min-w-[200px]"
+  }, /*#__PURE__*/React.createElement(Input, {
+    icon: Search,
+    placeholder: "Buscar nombre, SKU o categor\xEDa...",
+    value: q,
+    onChange: e => setQ(e.target.value)
+  })), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setFiltroBajo(!filtroBajo),
+    className: `px-3 py-2 text-xs rounded-md border transition flex items-center gap-2 ${filtroBajo ? 'bg-rose-500/15 border-rose-500/40 text-rose-300' : 'border-slate-800 text-slate-400 hover:border-slate-700'}`
+  }, /*#__PURE__*/React.createElement(AlertTriangle, {
+    className: "w-3.5 h-3.5"
+  }), "Solo stock bajo")), filtered.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, {
+    icon: Package,
+    title: "Sin repuestos",
+    subtitle: "Agrega tu primer repuesto."
+  }) : /*#__PURE__*/React.createElement("div", {
+    className: "overflow-x-auto"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "w-full text-sm"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+    className: "text-left text-xs uppercase tracking-wider text-slate-500 bg-slate-900/40"
+  }, /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3"
+  }, "SKU"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3"
+  }, "Nombre"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3"
+  }, "Categor\xEDa"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3 text-right"
+  }, "Stock"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3 text-right"
+  }, "M\xEDnimo"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3 text-right"
+  }, "P. Venta"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3 text-right"
+  }, "Acciones"))), /*#__PURE__*/React.createElement("tbody", null, filtered.map(i => {
+    const bajo = i.stock <= i.stock_minimo;
+    return /*#__PURE__*/React.createElement("tr", {
+      key: i.id,
+      className: `border-t border-slate-800/60 transition ${bajo ? 'bg-rose-500/5' : 'hover:bg-slate-900/40'}`
+    }, /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 font-mono text-xs text-amber-400"
+    }, i.sku || '—'), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 text-slate-100"
+    }, i.nombre), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 text-slate-400 text-xs"
+    }, i.categoria), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 text-right font-mono"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: bajo ? 'text-rose-300 font-semibold' : 'text-slate-200'
+    }, i.stock)), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 text-right font-mono text-slate-500"
+    }, i.stock_minimo), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 text-right font-mono text-slate-200"
+    }, fmtQ(i.precio_venta)), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 text-right"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex justify-end gap-1"
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setAjuste(i),
+      className: "p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-emerald-400",
+      title: "Ajustar stock"
+    }, /*#__PURE__*/React.createElement(RefreshCw, {
+      className: "w-4 h-4"
+    })), /*#__PURE__*/React.createElement("button", {
+      onClick: () => setEditing(i),
+      className: "p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-amber-400"
+    }, /*#__PURE__*/React.createElement(Edit3, {
+      className: "w-4 h-4"
+    })))));
+  }))))), editing && /*#__PURE__*/React.createElement(InventarioForm, {
+    item: editing,
+    onSave: save,
+    onClose: () => setEditing(null)
+  }), ajuste && /*#__PURE__*/React.createElement(AjusteStock, {
+    item: ajuste,
+    onApply: aplicarAjuste,
+    onClose: () => setAjuste(null)
+  }));
+}
+function InventarioForm({
+  item,
+  onSave,
+  onClose
+}) {
+  const [f, setF] = useState({
+    sku: item.sku || '',
+    nombre: item.nombre || '',
+    categoria: item.categoria || '',
+    unidad: item.unidad || 'UNIDAD',
+    stock: item.stock || 0,
+    stock_minimo: item.stock_minimo || 0,
+    precio_compra: item.precio_compra || 0,
+    precio_venta: item.precio_venta || 0,
+    ubicacion: item.ubicacion || '',
+    descripcion: item.descripcion || '',
+    id: item.id
+  });
+  const set = k => e => setF({
+    ...f,
+    [k]: e.target.value
+  });
+  const submit = () => {
+    if (!f.nombre.trim()) return alert('Nombre requerido');
+    onSave({
+      ...f,
+      stock: Number(f.stock),
+      stock_minimo: Number(f.stock_minimo),
+      precio_compra: Number(f.precio_compra),
+      precio_venta: Number(f.precio_venta)
+    });
+  };
+  return /*#__PURE__*/React.createElement(Modal, {
+    open: true,
+    onClose: onClose,
+    title: item.id ? 'Editar ítem' : 'Nuevo ítem de inventario',
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Button, {
+      variant: "ghost",
+      onClick: onClose
+    }, "Cancelar"), /*#__PURE__*/React.createElement(Button, {
+      onClick: submit
+    }, /*#__PURE__*/React.createElement(Save, {
+      className: "w-4 h-4"
+    }), " Guardar"))
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-2 gap-4"
+  }, /*#__PURE__*/React.createElement(Input, {
+    label: "SKU",
+    value: f.sku,
+    onChange: set('sku'),
+    className: "font-mono"
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Categor\xEDa",
+    value: f.categoria,
+    onChange: set('categoria')
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "md:col-span-2"
+  }, /*#__PURE__*/React.createElement(Input, {
+    label: "Nombre *",
+    value: f.nombre,
+    onChange: set('nombre')
+  })), /*#__PURE__*/React.createElement(Input, {
+    label: "Stock actual",
+    type: "number",
+    value: f.stock,
+    onChange: set('stock')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Stock m\xEDnimo",
+    type: "number",
+    value: f.stock_minimo,
+    onChange: set('stock_minimo')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Precio compra",
+    type: "number",
+    step: "0.01",
+    value: f.precio_compra,
+    onChange: set('precio_compra')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Precio venta",
+    type: "number",
+    step: "0.01",
+    value: f.precio_venta,
+    onChange: set('precio_venta')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Ubicaci\xF3n",
+    value: f.ubicacion,
+    onChange: set('ubicacion')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Unidad",
+    value: f.unidad,
+    onChange: set('unidad')
+  })));
+}
+function AjusteStock({
+  item,
+  onApply,
+  onClose
+}) {
+  const [tipo, setTipo] = useState('entrada');
+  const [cantidad, setCantidad] = useState(1);
+  const [nota, setNota] = useState('');
+  return /*#__PURE__*/React.createElement(Modal, {
+    open: true,
+    onClose: onClose,
+    title: `Ajustar stock · ${item.nombre}`,
+    size: "sm",
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Button, {
+      variant: "ghost",
+      onClick: onClose
+    }, "Cancelar"), /*#__PURE__*/React.createElement(Button, {
+      onClick: () => onApply({
+        id: item.id,
+        cantidad: Number(cantidad),
+        tipo,
+        nota
+      })
+    }, /*#__PURE__*/React.createElement(Check, {
+      className: "w-4 h-4"
+    }), " Aplicar"))
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "space-y-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm text-slate-400"
+  }, "Stock actual: ", /*#__PURE__*/React.createElement("span", {
+    className: "font-mono text-slate-100"
+  }, item.stock)), /*#__PURE__*/React.createElement(Select, {
+    label: "Tipo de movimiento",
+    value: tipo,
+    onChange: e => setTipo(e.target.value),
+    options: [{
+      value: 'entrada',
+      label: 'Entrada (sumar)'
+    }, {
+      value: 'salida',
+      label: 'Salida (restar)'
+    }]
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Cantidad",
+    type: "number",
+    value: cantidad,
+    onChange: e => setCantidad(e.target.value)
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Nota (opcional)",
+    value: nota,
+    onChange: e => setNota(e.target.value)
+  })));
+}
+
+/* ======================================================================
+   PAGE: FACTURAS
+   ====================================================================== */
+
+function Facturas({
+  data,
+  update,
+  toast
+}) {
+  const [verOrden, setVerOrden] = useState(null);
+  const facturarOrden = orden => {
+    const totales = calcularTotales(orden, data.settings.iva_pct);
+    const nuevoNumero = (data.settings.ultimoNumeroFactura || 0) + 1;
+    const fact = {
+      id: uid(),
+      orden_id: orden.id,
+      cliente_id: orden.cliente_id,
+      serie: data.settings.serieFactura || 'A',
+      numero: nuevoNumero,
+      fecha: today(),
+      subtotal: totales.subtotal,
+      iva: totales.iva,
+      total: totales.total,
+      estado: 'emitida',
+      fel_uuid: null
+    };
+    update({
+      facturas: [...data.facturas, fact],
+      settings: {
+        ...data.settings,
+        ultimoNumeroFactura: nuevoNumero
+      }
+    });
+    toast('success', `Factura ${fact.serie}-${fact.numero} emitida`);
+  };
+  const listasParaFacturar = data.ordenes.filter(o => ['lista', 'entregada'].includes(o.estado) && !data.facturas.some(f => f.orden_id === o.id));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "space-y-5"
+  }, /*#__PURE__*/React.createElement(PageHeader, {
+    kicker: "Facturaci\xF3n",
+    title: "Facturas emitidas",
+    subtitle: `${data.facturas.length} facturas · ${fmtQ(data.facturas.reduce((s, f) => s + f.total, 0))} facturado`
+  }), listasParaFacturar.length > 0 && /*#__PURE__*/React.createElement(Card, {
+    className: "p-5 border-amber-500/30 bg-amber-500/5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2 mb-3"
+  }, /*#__PURE__*/React.createElement(Receipt, {
+    className: "w-4 h-4 text-amber-400"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "font-display text-base text-slate-100"
+  }, "Listas para facturar")), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"
+  }, listasParaFacturar.map(o => {
+    const cli = data.clientes.find(c => c.id === o.cliente_id);
+    const t = calcularTotales(o, data.settings.iva_pct);
+    return /*#__PURE__*/React.createElement("div", {
+      key: o.id,
+      className: "p-3 rounded-lg bg-slate-900/40 border border-slate-800"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex justify-between items-start mb-2"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "font-mono text-xs text-amber-400"
+    }, "OT-", o.numero), /*#__PURE__*/React.createElement(StatusBadge, {
+      estado: o.estado
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "text-sm text-slate-200"
+    }, cli?.nombre), /*#__PURE__*/React.createElement("div", {
+      className: "font-mono text-slate-400 text-xs mt-1"
+    }, "Total: ", fmtQ(t.total)), /*#__PURE__*/React.createElement(Button, {
+      size: "sm",
+      className: "mt-2 w-full",
+      onClick: () => facturarOrden(o)
+    }, /*#__PURE__*/React.createElement(Receipt, {
+      className: "w-3 h-3"
+    }), " Facturar"));
+  }))), /*#__PURE__*/React.createElement(Card, {
+    className: "overflow-hidden"
+  }, data.facturas.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, {
+    icon: FileText,
+    title: "Sin facturas",
+    subtitle: "Al marcar una orden como 'Lista' podr\xE1s facturarla."
+  }) : /*#__PURE__*/React.createElement("div", {
+    className: "overflow-x-auto"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "w-full text-sm"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+    className: "text-left text-xs uppercase tracking-wider text-slate-500 bg-slate-900/40"
+  }, /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3"
+  }, "N\xFAmero"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3"
+  }, "Fecha"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3"
+  }, "Cliente"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3"
+  }, "Orden"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3 text-right"
+  }, "Subtotal"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3 text-right"
+  }, "IVA"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3 text-right"
+  }, "Total"), /*#__PURE__*/React.createElement("th", {
+    className: "px-4 py-3"
+  }, "Estado"))), /*#__PURE__*/React.createElement("tbody", null, [...data.facturas].sort((a, b) => b.numero - a.numero).map(f => {
+    const cli = data.clientes.find(c => c.id === f.cliente_id);
+    const ord = data.ordenes.find(o => o.id === f.orden_id);
+    return /*#__PURE__*/React.createElement("tr", {
+      key: f.id,
+      className: "border-t border-slate-800/60 hover:bg-slate-900/40 transition"
+    }, /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 font-mono text-amber-400 font-semibold"
+    }, f.serie, "-", String(f.numero).padStart(5, '0')), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 text-slate-400"
+    }, fmtDate(f.fecha)), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 text-slate-200"
+    }, cli?.nombre), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 font-mono text-xs text-slate-400"
+    }, "OT-", ord?.numero), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 text-right font-mono text-slate-300"
+    }, fmtQ(f.subtotal)), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 text-right font-mono text-slate-400"
+    }, fmtQ(f.iva)), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3 text-right font-mono text-slate-100 font-semibold"
+    }, fmtQ(f.total)), /*#__PURE__*/React.createElement("td", {
+      className: "px-4 py-3"
+    }, /*#__PURE__*/React.createElement(Badge, {
+      className: f.estado === 'pagada' ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' : 'bg-sky-500/15 border-sky-500/30 text-sky-300'
+    }, f.estado)));
+  }))))));
+}
+
+/* ======================================================================
+   PAGE: EMPLEADOS
+   ====================================================================== */
+
+function Empleados({
+  data,
+  update,
+  toast
+}) {
+  const [editing, setEditing] = useState(null);
+  const save = emp => {
+    const exists = data.empleados.find(e => e.id === emp.id);
+    const next = exists ? data.empleados.map(e => e.id === emp.id ? {
+      ...e,
+      ...emp
+    } : e) : [...data.empleados, {
+      ...emp,
+      id: uid()
+    }];
+    update({
+      empleados: next
+    });
+    setEditing(null);
+    toast('success', 'Guardado');
+  };
+  const remove = id => {
+    if (!confirm('¿Eliminar este empleado?')) return;
+    update({
+      empleados: data.empleados.filter(e => e.id !== id)
+    });
+    toast('success', 'Empleado eliminado');
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "space-y-5"
+  }, /*#__PURE__*/React.createElement(PageHeader, {
+    kicker: "Equipo",
+    title: "Empleados",
+    subtitle: `${data.empleados.filter(e => e.activo).length} activos`,
+    actions: /*#__PURE__*/React.createElement(Button, {
+      onClick: () => setEditing({})
+    }, /*#__PURE__*/React.createElement(Plus, {
+      className: "w-4 h-4"
+    }), " Nuevo empleado")
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+  }, data.empleados.map(e => {
+    const ordenes = data.ordenes.filter(o => o.mecanico_id === e.id).length;
+    return /*#__PURE__*/React.createElement(Card, {
+      key: e.id,
+      className: "p-5"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex justify-between items-start"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "w-12 h-12 rounded-full bg-gradient-to-br from-amber-500/30 to-orange-600/30 border border-amber-500/20 flex items-center justify-center font-display text-lg text-amber-300"
+    }, e.nombre.split(' ').map(n => n[0]).slice(0, 2).join('')), /*#__PURE__*/React.createElement(Badge, {
+      className: e.activo ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : 'border-slate-700 bg-slate-800 text-slate-400'
+    }, e.activo ? 'activo' : 'inactivo')), /*#__PURE__*/React.createElement("div", {
+      className: "font-display text-lg text-slate-100 mt-3"
+    }, e.nombre), /*#__PURE__*/React.createElement("div", {
+      className: "text-xs uppercase tracking-wider text-amber-500/70 mt-0.5"
+    }, e.rol.replace('_', ' ')), /*#__PURE__*/React.createElement("div", {
+      className: "mt-3 space-y-1 text-xs text-slate-400"
+    }, e.telefono && /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center gap-2"
+    }, /*#__PURE__*/React.createElement(Phone, {
+      className: "w-3 h-3"
+    }), e.telefono), e.email && /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center gap-2"
+    }, /*#__PURE__*/React.createElement(Mail, {
+      className: "w-3 h-3"
+    }), e.email), /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center gap-2"
+    }, /*#__PURE__*/React.createElement(Activity, {
+      className: "w-3 h-3"
+    }), ordenes, " \xF3rdenes atendidas")), /*#__PURE__*/React.createElement("div", {
+      className: "flex gap-2 mt-4"
+    }, /*#__PURE__*/React.createElement(Button, {
+      size: "sm",
+      variant: "outline",
+      onClick: () => setEditing(e)
+    }, /*#__PURE__*/React.createElement(Edit3, {
+      className: "w-3 h-3"
+    }), " Editar"), /*#__PURE__*/React.createElement(Button, {
+      size: "sm",
+      variant: "ghost",
+      onClick: () => remove(e.id)
+    }, /*#__PURE__*/React.createElement(Trash2, {
+      className: "w-3 h-3"
+    }))));
+  })), editing && /*#__PURE__*/React.createElement(EmpleadoForm, {
+    empleado: editing,
+    onSave: save,
+    onClose: () => setEditing(null)
+  }));
+}
+function EmpleadoForm({
+  empleado,
+  onSave,
+  onClose
+}) {
+  const [f, setF] = useState({
+    nombre: empleado.nombre || '',
+    rol: empleado.rol || 'mecanico',
+    telefono: empleado.telefono || '',
+    email: empleado.email || '',
+    comision_pct: empleado.comision_pct || 0,
+    activo: empleado.activo ?? true,
+    id: empleado.id
+  });
+  const set = k => e => setF({
+    ...f,
+    [k]: e.target.value
+  });
+  const submit = () => {
+    if (!f.nombre.trim()) return alert('Nombre requerido');
+    onSave({
+      ...f,
+      comision_pct: Number(f.comision_pct)
+    });
+  };
+  return /*#__PURE__*/React.createElement(Modal, {
+    open: true,
+    onClose: onClose,
+    title: empleado.id ? 'Editar empleado' : 'Nuevo empleado',
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Button, {
+      variant: "ghost",
+      onClick: onClose
+    }, "Cancelar"), /*#__PURE__*/React.createElement(Button, {
+      onClick: submit
+    }, /*#__PURE__*/React.createElement(Save, {
+      className: "w-4 h-4"
+    }), " Guardar"))
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-2 gap-4"
+  }, /*#__PURE__*/React.createElement(Input, {
+    label: "Nombre *",
+    value: f.nombre,
+    onChange: set('nombre')
+  }), /*#__PURE__*/React.createElement(Select, {
+    label: "Rol",
+    value: f.rol,
+    onChange: set('rol'),
+    options: [{
+      value: 'mecanico',
+      label: 'Mecánico'
+    }, {
+      value: 'jefe_taller',
+      label: 'Jefe de taller'
+    }, {
+      value: 'recepcion',
+      label: 'Recepción'
+    }, {
+      value: 'admin',
+      label: 'Administrador'
+    }]
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Tel\xE9fono",
+    value: f.telefono,
+    onChange: set('telefono')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Email",
+    type: "email",
+    value: f.email,
+    onChange: set('email')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Comisi\xF3n %",
+    type: "number",
+    step: "0.01",
+    value: f.comision_pct,
+    onChange: set('comision_pct')
+  }), /*#__PURE__*/React.createElement(Select, {
+    label: "Estado",
+    value: f.activo ? 'true' : 'false',
+    onChange: e => setF({
+      ...f,
+      activo: e.target.value === 'true'
+    }),
+    options: [{
+      value: 'true',
+      label: 'Activo'
+    }, {
+      value: 'false',
+      label: 'Inactivo'
+    }]
+  })));
+}
+
+/* ======================================================================
+   PAGE: REPORTES
+   ====================================================================== */
+
+function Reportes({
+  data
+}) {
+  const ingresoMesPorDia = useMemo(() => {
+    const dias = [];
+    const hoy = new Date();
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      const total = data.ordenes.filter(o => o.estado === 'entregada' && o.fecha_entrega?.slice(0, 10) === key).reduce((s, o) => s + calcularTotales(o, data.settings.iva_pct).total, 0);
+      dias.push({
+        dia: d.toLocaleDateString('es-GT', {
+          day: '2-digit',
+          month: 'short'
+        }),
+        total: Math.round(total)
+      });
+    }
+    return dias;
+  }, [data.ordenes, data.settings.iva_pct]);
+  const rankingMecanicos = useMemo(() => {
+    return data.empleados.map(e => {
+      const ordenes = data.ordenes.filter(o => o.mecanico_id === e.id && o.estado === 'entregada');
+      const total = ordenes.reduce((s, o) => s + calcularTotales(o, data.settings.iva_pct).total, 0);
+      return {
+        nombre: e.nombre,
+        ordenes: ordenes.length,
+        total
+      };
+    }).filter(e => e.ordenes > 0).sort((a, b) => b.total - a.total);
+  }, [data.empleados, data.ordenes, data.settings.iva_pct]);
+  const topClientes = useMemo(() => {
+    const map = {};
+    data.ordenes.filter(o => o.estado === 'entregada').forEach(o => {
+      const t = calcularTotales(o, data.settings.iva_pct).total;
+      map[o.cliente_id] = (map[o.cliente_id] || 0) + t;
+    });
+    return Object.entries(map).map(([id, total]) => ({
+      cliente: data.clientes.find(c => c.id === id)?.nombre || 'Desconocido',
+      total
+    })).sort((a, b) => b.total - a.total).slice(0, 5);
+  }, [data.ordenes, data.clientes, data.settings.iva_pct]);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "space-y-5"
+  }, /*#__PURE__*/React.createElement(PageHeader, {
+    kicker: "Anal\xEDtica",
+    title: "Reportes",
+    subtitle: "Indicadores clave de rendimiento"
+  }), /*#__PURE__*/React.createElement(Card, {
+    className: "p-5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs uppercase tracking-wider text-slate-500"
+  }, "Ingresos"), /*#__PURE__*/React.createElement("div", {
+    className: "font-display text-lg text-slate-100"
+  }, "\xDAltimos 30 d\xEDas")), /*#__PURE__*/React.createElement("div", {
+    className: "h-72"
+  }, /*#__PURE__*/React.createElement(ResponsiveContainer, {
+    width: "100%",
+    height: "100%"
+  }, /*#__PURE__*/React.createElement(BarChart, {
+    data: ingresoMesPorDia
+  }, /*#__PURE__*/React.createElement(CartesianGrid, {
+    strokeDasharray: "3 3",
+    stroke: "#1e293b",
+    vertical: false
+  }), /*#__PURE__*/React.createElement(XAxis, {
+    dataKey: "dia",
+    stroke: "#64748b",
+    fontSize: 11,
+    tickLine: false,
+    axisLine: false,
+    interval: 3
+  }), /*#__PURE__*/React.createElement(YAxis, {
+    stroke: "#64748b",
+    fontSize: 11,
+    tickLine: false,
+    axisLine: false,
+    tickFormatter: v => `Q${v / 1000 >= 1 ? (v / 1000).toFixed(0) + 'k' : v}`
+  }), /*#__PURE__*/React.createElement(Tooltip, {
+    contentStyle: {
+      background: '#0f172a',
+      border: '1px solid #334155',
+      borderRadius: 8,
+      fontSize: 12
+    },
+    formatter: v => [fmtQ(v), 'Ingreso']
+  }), /*#__PURE__*/React.createElement(Bar, {
+    dataKey: "total",
+    fill: "#f59e0b",
+    radius: [4, 4, 0, 0]
+  }))))), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-1 lg:grid-cols-2 gap-4"
+  }, /*#__PURE__*/React.createElement(Card, {
+    className: "p-5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs uppercase tracking-wider text-slate-500"
+  }, "Equipo"), /*#__PURE__*/React.createElement("div", {
+    className: "font-display text-lg text-slate-100"
+  }, "Ranking de mec\xE1nicos")), rankingMecanicos.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "text-sm text-slate-500 py-4"
+  }, "Sin datos a\xFAn.") : /*#__PURE__*/React.createElement("div", {
+    className: "space-y-2"
+  }, rankingMecanicos.map((r, i) => /*#__PURE__*/React.createElement("div", {
+    key: r.nombre,
+    className: "flex items-center justify-between p-3 rounded-lg bg-slate-900/40 border border-slate-800/60"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-3"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "font-display text-lg text-amber-400 w-8"
+  }, "#", i + 1), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm text-slate-200"
+  }, r.nombre), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs text-slate-500"
+  }, r.ordenes, " \xF3rdenes"))), /*#__PURE__*/React.createElement("div", {
+    className: "font-mono text-sm text-slate-100"
+  }, fmtQ(r.total)))))), /*#__PURE__*/React.createElement(Card, {
+    className: "p-5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs uppercase tracking-wider text-slate-500"
+  }, "Clientes"), /*#__PURE__*/React.createElement("div", {
+    className: "font-display text-lg text-slate-100"
+  }, "Top 5 por facturaci\xF3n")), topClientes.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "text-sm text-slate-500 py-4"
+  }, "Sin datos a\xFAn.") : /*#__PURE__*/React.createElement("div", {
+    className: "space-y-2"
+  }, topClientes.map((c, i) => /*#__PURE__*/React.createElement("div", {
+    key: c.cliente,
+    className: "flex items-center justify-between p-3 rounded-lg bg-slate-900/40 border border-slate-800/60"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-3"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "font-display text-lg text-amber-400 w-8"
+  }, "#", i + 1), /*#__PURE__*/React.createElement("div", {
+    className: "text-sm text-slate-200"
+  }, c.cliente)), /*#__PURE__*/React.createElement("div", {
+    className: "font-mono text-sm text-slate-100"
+  }, fmtQ(c.total))))))));
+}
+
+/* ======================================================================
+   PAGE: CONFIGURACION
+   ====================================================================== */
+
+function Configuracion({
+  data,
+  update,
+  toast,
+  onReset
+}) {
+  const [s, setS] = useState({
+    ...data.settings
+  });
+  const set = k => e => setS({
+    ...s,
+    [k]: e.target.value
+  });
+  const save = () => {
+    update({
+      settings: {
+        ...s,
+        iva_pct: Number(s.iva_pct)
+      }
+    });
+    toast('success', 'Configuración guardada');
+  };
+  const exportar = () => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: 'application/json'
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tallerpro_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const importar = e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        const parsed = JSON.parse(r.result);
+        update(parsed);
+        toast('success', 'Backup restaurado');
+      } catch {
+        toast('error', 'Archivo inválido');
+      }
+    };
+    r.readAsText(file);
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "space-y-5"
+  }, /*#__PURE__*/React.createElement(PageHeader, {
+    kicker: "Sistema",
+    title: "Configuraci\xF3n",
+    subtitle: "Datos del taller y preferencias"
+  }), /*#__PURE__*/React.createElement(Card, {
+    className: "p-5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-display text-lg text-slate-100 mb-4"
+  }, "Informaci\xF3n del taller"), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-2 gap-4"
+  }, /*#__PURE__*/React.createElement(Input, {
+    label: "Nombre del taller",
+    value: s.nombre,
+    onChange: set('nombre')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "NIT",
+    value: s.nit,
+    onChange: set('nit'),
+    className: "font-mono"
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Direcci\xF3n",
+    value: s.direccion,
+    onChange: set('direccion')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Tel\xE9fono",
+    value: s.telefono,
+    onChange: set('telefono')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Email",
+    type: "email",
+    value: s.email,
+    onChange: set('email')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Moneda",
+    value: s.moneda,
+    onChange: set('moneda')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "IVA (%)",
+    type: "number",
+    value: s.iva_pct,
+    onChange: set('iva_pct')
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Serie de factura",
+    value: s.serieFactura,
+    onChange: set('serieFactura')
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "mt-5"
+  }, /*#__PURE__*/React.createElement(Button, {
+    onClick: save
+  }, /*#__PURE__*/React.createElement(Save, {
+    className: "w-4 h-4"
+  }), " Guardar cambios"))), /*#__PURE__*/React.createElement(Card, {
+    className: "p-5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-display text-lg text-slate-100 mb-1"
+  }, "Respaldo de datos"), /*#__PURE__*/React.createElement("p", {
+    className: "text-sm text-slate-500 mb-4"
+  }, "Exporta o importa todos los datos del sistema como archivo JSON."), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap gap-3"
+  }, /*#__PURE__*/React.createElement(Button, {
+    variant: "secondary",
+    onClick: exportar
+  }, /*#__PURE__*/React.createElement(Download, {
+    className: "w-4 h-4"
+  }), " Exportar backup"), /*#__PURE__*/React.createElement("label", {
+    className: "inline-flex items-center gap-2 px-4 py-2 text-sm rounded-md bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 cursor-pointer transition"
+  }, /*#__PURE__*/React.createElement(Upload, {
+    className: "w-4 h-4"
+  }), " Importar backup", /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: "application/json",
+    className: "hidden",
+    onChange: importar
+  })))), /*#__PURE__*/React.createElement(Card, {
+    className: "p-5 border-rose-500/30"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-display text-lg text-slate-100 mb-1"
+  }, "Zona peligrosa"), /*#__PURE__*/React.createElement("p", {
+    className: "text-sm text-slate-500 mb-4"
+  }, "Restaurar a los datos de demostraci\xF3n. Se perder\xE1 toda la informaci\xF3n actual."), /*#__PURE__*/React.createElement(Button, {
+    variant: "danger",
+    onClick: () => {
+      if (confirm('¿Restaurar datos de demostración?')) onReset();
+    }
+  }, /*#__PURE__*/React.createElement(RefreshCw, {
+    className: "w-4 h-4"
+  }), " Restaurar demo")));
+}
+
+/* ======================================================================
+   LAYOUT (sidebar + topbar)
+   ====================================================================== */
+
+function PageHeader({
+  kicker,
+  title,
+  subtitle,
+  actions
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap justify-between items-end gap-4"
+  }, /*#__PURE__*/React.createElement("div", null, kicker && /*#__PURE__*/React.createElement("div", {
+    className: "text-xs uppercase tracking-[0.2em] text-amber-500/80 mb-1"
+  }, kicker), /*#__PURE__*/React.createElement("h1", {
+    className: "font-display text-3xl text-slate-100 tracking-tight"
+  }, title), subtitle && /*#__PURE__*/React.createElement("p", {
+    className: "text-sm text-slate-500 mt-1"
+  }, subtitle)), actions && /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2"
+  }, actions));
+}
+function Sidebar({
+  section,
+  setSection,
+  data
+}) {
+  const nav = [{
+    id: 'dashboard',
+    label: 'Dashboard',
+    icon: LayoutDashboard
+  }, {
+    id: 'ordenes',
+    label: 'Órdenes',
+    icon: ClipboardList,
+    badge: data.ordenes.filter(o => !['entregada', 'cancelada'].includes(o.estado)).length
+  }, {
+    id: 'clientes',
+    label: 'Clientes',
+    icon: Users
+  }, {
+    id: 'vehiculos',
+    label: 'Vehículos',
+    icon: Car
+  }, {
+    id: 'inventario',
+    label: 'Inventario',
+    icon: Package,
+    alert: data.inventario.filter(i => i.stock <= i.stock_minimo).length
+  }, {
+    id: 'facturas',
+    label: 'Facturas',
+    icon: FileText
+  }, {
+    id: 'empleados',
+    label: 'Empleados',
+    icon: UserCog
+  }, {
+    id: 'reportes',
+    label: 'Reportes',
+    icon: BarChart3
+  }, {
+    id: 'configuracion',
+    label: 'Configuración',
+    icon: Settings
+  }];
+  return /*#__PURE__*/React.createElement("aside", {
+    className: "w-64 bg-slate-950 border-r border-slate-900 flex-shrink-0 flex flex-col"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "px-5 py-5 border-b border-slate-900"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2.5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "w-9 h-9 rounded-lg bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/20"
+  }, /*#__PURE__*/React.createElement(Wrench, {
+    className: "w-5 h-5 text-slate-950"
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "font-display text-slate-100 text-base leading-none tracking-tight"
+  }, "TallerPro"), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] uppercase tracking-[0.2em] text-amber-500/70 mt-0.5"
+  }, "GT \xB7 v3")))), /*#__PURE__*/React.createElement("nav", {
+    className: "flex-1 overflow-y-auto py-3 px-2 space-y-0.5"
+  }, nav.map(n => {
+    const active = section === n.id;
+    return /*#__PURE__*/React.createElement("button", {
+      key: n.id,
+      onClick: () => setSection(n.id),
+      className: `w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-all ${active ? 'bg-amber-500/10 text-amber-300 border-l-2 border-amber-500' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200 border-l-2 border-transparent'}`
+    }, /*#__PURE__*/React.createElement(n.icon, {
+      className: "w-4 h-4 flex-shrink-0"
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "flex-1 text-left"
+    }, n.label), n.badge > 0 && /*#__PURE__*/React.createElement("span", {
+      className: `text-[10px] px-1.5 py-0.5 rounded font-mono ${active ? 'bg-amber-500/20 text-amber-300' : 'bg-slate-800 text-slate-400'}`
+    }, n.badge), n.alert > 0 && /*#__PURE__*/React.createElement("span", {
+      className: "text-[10px] px-1.5 py-0.5 rounded font-mono bg-rose-500/20 text-rose-300"
+    }, n.alert));
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "px-3 py-3 border-t border-slate-900"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "px-3 py-2 rounded-md bg-slate-900/60 text-xs"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-slate-500 uppercase tracking-wider text-[10px]"
+  }, "Taller"), /*#__PURE__*/React.createElement("div", {
+    className: "text-slate-200 font-medium truncate"
+  }, data.settings.nombre), /*#__PURE__*/React.createElement("div", {
+    className: "font-mono text-slate-500 text-[10px] mt-0.5"
+  }, "NIT ", data.settings.nit))));
+}
+function Topbar({
+  data
+}) {
+  const now = new Date().toLocaleDateString('es-GT', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long'
+  });
+  return /*#__PURE__*/React.createElement("header", {
+    className: "h-14 border-b border-slate-900 bg-slate-950/50 backdrop-blur flex items-center justify-between px-6"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs text-slate-500 capitalize"
+  }, now), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-3"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "relative p-2 rounded-md hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+  }, /*#__PURE__*/React.createElement(Bell, {
+    className: "w-4 h-4"
+  }), data.inventario.filter(i => i.stock <= i.stock_minimo).length > 0 && /*#__PURE__*/React.createElement("span", {
+    className: "absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-rose-500"
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "w-8 h-8 rounded-full bg-gradient-to-br from-amber-500/30 to-orange-600/30 border border-amber-500/20 flex items-center justify-center text-xs font-display text-amber-300"
+  }, "MT")));
+}
+
+/* ======================================================================
+   APP
+   ====================================================================== */
+
+function App() {
+  const [section, setSection] = useState('dashboard');
+  const [focus, setFocus] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const [data, setData] = useState(() => seed());
+
+  // Cargar de storage al iniciar
+  useEffect(() => {
+    (async () => {
+      const saved = await store.get('tp:data', null);
+      if (saved) setData(saved);
+      setLoaded(true);
+    })();
+  }, []);
+
+  // Persistir cada cambio
+  useEffect(() => {
+    if (loaded) store.set('tp:data', data);
+  }, [data, loaded]);
+  const update = useCallback(patch => {
+    setData(prev => ({
+      ...prev,
+      ...patch
+    }));
+  }, []);
+  const notify = useCallback((kind, msg) => setToast({
+    kind,
+    msg
+  }), []);
+  const go = useCallback((s, f) => {
+    setSection(s);
+    setFocus(f);
+  }, []);
+  const resetDemo = () => {
+    const s = seed();
+    setData(s);
+    store.set('tp:data', s);
+    notify('success', 'Datos de demo restaurados');
+  };
+  const renderPage = () => {
+    switch (section) {
+      case 'dashboard':
+        return /*#__PURE__*/React.createElement(Dashboard, {
+          data: data,
+          go: go
+        });
+      case 'clientes':
+        return /*#__PURE__*/React.createElement(Clientes, {
+          data: data,
+          update: update,
+          toast: notify
+        });
+      case 'vehiculos':
+        return /*#__PURE__*/React.createElement(Vehiculos, {
+          data: data,
+          update: update,
+          toast: notify
+        });
+      case 'ordenes':
+        return /*#__PURE__*/React.createElement(Ordenes, {
+          data: data,
+          update: update,
+          toast: notify,
+          focus: focus
+        });
+      case 'inventario':
+        return /*#__PURE__*/React.createElement(Inventario, {
+          data: data,
+          update: update,
+          toast: notify
+        });
+      case 'facturas':
+        return /*#__PURE__*/React.createElement(Facturas, {
+          data: data,
+          update: update,
+          toast: notify
+        });
+      case 'empleados':
+        return /*#__PURE__*/React.createElement(Empleados, {
+          data: data,
+          update: update,
+          toast: notify
+        });
+      case 'reportes':
+        return /*#__PURE__*/React.createElement(Reportes, {
+          data: data
+        });
+      case 'configuracion':
+        return /*#__PURE__*/React.createElement(Configuracion, {
+          data: data,
+          update: update,
+          toast: notify,
+          onReset: resetDemo
+        });
+      default:
+        return /*#__PURE__*/React.createElement(Dashboard, {
+          data: data,
+          go: go
+        });
+    }
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "tp-root min-h-screen bg-slate-950 text-slate-200 flex"
+  }, /*#__PURE__*/React.createElement("style", null, `
+        @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
+        .tp-root { font-family: 'Instrument Sans', system-ui, sans-serif; }
+        .tp-root .font-display { font-family: 'Bricolage Grotesque', 'Instrument Sans', sans-serif; }
+        .tp-root .font-mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+        .tp-root input, .tp-root select, .tp-root textarea, .tp-root button { font-family: inherit; }
+        .tp-root .font-mono, .tp-root [class*="font-mono"] { font-family: 'JetBrains Mono', ui-monospace, monospace !important; }
+        @keyframes slideIn {
+          from { transform: translateY(8px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+        .animate-slideIn { animation: slideIn 0.25s ease-out; }
+        .tp-root ::-webkit-scrollbar { width: 8px; height: 8px; }
+        .tp-root ::-webkit-scrollbar-track { background: #0b1220; }
+        .tp-root ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
+        .tp-root ::-webkit-scrollbar-thumb:hover { background: #334155; }
+
+        /* Fondo con atmósfera industrial sutil */
+        .tp-bg {
+          background-image:
+            radial-gradient(ellipse 60% 40% at 80% -10%, rgba(245, 158, 11, 0.08), transparent),
+            radial-gradient(ellipse 40% 30% at -10% 30%, rgba(56, 189, 248, 0.05), transparent),
+            linear-gradient(to bottom, #020617 0%, #0b1220 100%);
+        }
+      `), /*#__PURE__*/React.createElement(Sidebar, {
+    section: section,
+    setSection: setSection,
+    data: data
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "flex-1 flex flex-col min-w-0 tp-bg"
+  }, /*#__PURE__*/React.createElement(Topbar, {
+    data: data
+  }), /*#__PURE__*/React.createElement("main", {
+    className: "flex-1 overflow-y-auto px-6 py-6"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "max-w-7xl mx-auto"
+  }, renderPage()))), /*#__PURE__*/React.createElement(Toast, {
+    toast: toast,
+    onClose: () => setToast(null)
+  }));
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  React.createElement(App)
+);
+  </script>
+</body>
+</html>

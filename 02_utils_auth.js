@@ -1,4 +1,0 @@
-/* TallerPro GT — js/13_config.js */
-/* Generado automáticamente — editar este archivo */
-
-

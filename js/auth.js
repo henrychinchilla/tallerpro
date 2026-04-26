@@ -886,15 +886,21 @@ function puedeAcceder(modulo){
 function soloAdmin(){return sesionActual?.perfil==='admin';}
 function adminOSupervisor(){return sesionActual?.perfil==='admin'||sesionActual?.perfil==='supervisor';}
 
-async function loginUsuario(username,password){
-  const usuarios=await dbGetAll('usuarios');
-  const hash=hashSimple(password);
-  const user=usuarios.find(u=>u.username===username&&u.passwordHash===hash&&u.activo);
-  if(!user)return null;
-  const ses={key:'sesion_actual',userId:user.id,username:user.username,nombre:user.nombre,perfil:user.perfil,loginAt:nowTs()};
-  await dbPut('sesion',ses);
-  sesionActual=ses;
-  return ses;
+async function login(email, password) {
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: email,
+    password: password
+  });
+
+  if (error) {
+    alert('Error de login: ' + error.message);
+    return;
+  }
+
+  console.log('Login exitoso', data.user);
+
+  // aquí puedes redirigir
+  window.location.href = 'dashboard.html';
 }
 
 async function logout(){

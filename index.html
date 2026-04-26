@@ -4,445 +4,147 @@
   <meta charset="UTF-8" />
   <title>Taller Pro – Control de Taller</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-  <!-- Manifest PWA -->
   <link rel="manifest" href="manifest.json" />
-
-  <!-- Colores del navegador -->
   <meta name="theme-color" content="#0b3c5d" />
 
-  <!-- Estilos básicos corporativos -->
   <style>
     :root {
-      --color-primary: #0b3c5d;
-      --color-primary-light: #145a82;
-      --color-accent: #f39c12;
-      --color-bg: #f4f6f8;
-      --color-text: #2c3e50;
-      --color-border: #dfe4ea;
+      --primary: #0b3c5d;
+      --primary-light: #145a82;
+      --accent: #f39c12;
+      --bg: #f4f6f8;
+      --text: #2c3e50;
+      --border: #dfe4ea;
       --sidebar-width: 240px;
     }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, sans-serif; }
+    body { background: var(--bg); color: var(--text); display: flex; min-height: 100vh; }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-
-    body {
-      background: var(--color-bg);
-      color: var(--color-text);
-      display: flex;
-      min-height: 100vh;
-    }
-
+    /* SIDEBAR */
     .sidebar {
       width: var(--sidebar-width);
-      background: var(--color-primary);
+      background: var(--primary);
       color: #ecf0f1;
       display: flex;
       flex-direction: column;
       padding: 1.5rem 1rem;
     }
-
-    .sidebar__logo {
-      font-size: 1.4rem;
-      font-weight: 700;
-      margin-bottom: 2rem;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
+    .sidebar__logo { font-size: 1.4rem; font-weight: 700; margin-bottom: 2rem; display: flex; gap: .5rem; }
     .sidebar__logo span {
-      background: #ecf0f1;
-      color: var(--color-primary);
-      border-radius: 4px;
-      padding: 0.1rem 0.4rem;
-      font-size: 0.9rem;
-      font-weight: 800;
+      background: #ecf0f1; color: var(--primary);
+      padding: .1rem .4rem; border-radius: 4px; font-weight: 800;
     }
-
-    .sidebar__section-title {
-      font-size: 0.8rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      opacity: 0.7;
-      margin: 1rem 0 0.5rem;
-    }
-
-    .sidebar__nav {
-      list-style: none;
-    }
-
-    .sidebar__nav-item {
-      margin-bottom: 0.25rem;
-    }
-
+    .sidebar__section-title { font-size: .8rem; opacity: .7; margin: 1rem 0 .5rem; text-transform: uppercase; }
+    .sidebar__nav { list-style: none; }
     .sidebar__nav-button {
-      width: 100%;
-      text-align: left;
-      border: none;
-      background: transparent;
-      color: inherit;
-      padding: 0.55rem 0.75rem;
-      border-radius: 4px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      font-size: 0.92rem;
-      transition: background 0.15s ease, transform 0.05s ease;
+      width: 100%; padding: .55rem .75rem; border: none; background: transparent;
+      color: inherit; border-radius: 4px; cursor: pointer; text-align: left;
+      transition: .15s; font-size: .92rem;
     }
+    .sidebar__nav-button:hover { background: rgba(255,255,255,.08); }
+    .sidebar__nav-button--active { background: #ecf0f1; color: var(--primary); font-weight: 600; }
+    .sidebar__footer { margin-top: auto; font-size: .75rem; opacity: .7; }
 
-    .sidebar__nav-button:hover {
-      background: rgba(255, 255, 255, 0.08);
-      transform: translateX(1px);
-    }
-
-    .sidebar__nav-button--active {
-      background: #ecf0f1;
-      color: var(--color-primary);
-      font-weight: 600;
-    }
-
-    .sidebar__footer {
-      margin-top: auto;
-      font-size: 0.75rem;
-      opacity: 0.7;
-    }
-
-    .sidebar__footer strong {
-      display: block;
-      font-size: 0.8rem;
-      opacity: 0.9;
-    }
-
-    .layout {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
-    }
-
+    /* LAYOUT */
+    .layout { flex: 1; display: flex; flex-direction: column; }
     .topbar {
-      background: #ffffff;
-      border-bottom: 1px solid var(--color-border);
-      padding: 0.75rem 1.5rem;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+      background: #fff; border-bottom: 1px solid var(--border);
+      padding: .75rem 1.5rem; display: flex; justify-content: space-between;
     }
+    .topbar__title { font-size: 1.1rem; font-weight: 600; }
+    .content { padding: 1.5rem; flex: 1; overflow-y: auto; }
 
-    .topbar__title {
-      font-size: 1.1rem;
-      font-weight: 600;
-    }
-
-    .topbar__meta {
-      font-size: 0.85rem;
-      opacity: 0.8;
-    }
-
-    .content {
-      padding: 1.5rem;
-      flex: 1;
-      overflow-y: auto;
-    }
-
-    .cards {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 1rem;
-      margin-bottom: 1.5rem;
-    }
-
+    /* CARDS */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap: 1rem; }
     .card {
-      background: #ffffff;
-      border-radius: 6px;
-      border: 1px solid var(--color-border);
-      padding: 1rem;
+      background: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 1rem;
     }
+    .card__title { font-size: .9rem; font-weight: 600; color: var(--primary); margin-bottom: .5rem; }
+    .card__value { font-size: 1.4rem; font-weight: 700; }
 
-    .card__title {
-      font-size: 0.9rem;
-      font-weight: 600;
-      margin-bottom: 0.5rem;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: var(--color-primary);
-    }
+    /* SECTIONS */
+    .section { display: none; }
+    .section--active { display: block; }
+    .section__header { display: flex; justify-content: space-between; margin-bottom: 1rem; }
+    .section__title { font-size: 1.1rem; font-weight: 600; }
 
-    .card__value {
-      font-size: 1.4rem;
-      font-weight: 700;
-      margin-bottom: 0.25rem;
-    }
-
-    .card__subtitle {
-      font-size: 0.8rem;
-      opacity: 0.7;
-    }
-
-    .section {
-      display: none;
-    }
-
-    .section--active {
-      display: block;
-    }
-
-    .section__header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 1rem;
-    }
-
-    .section__title {
-      font-size: 1.1rem;
-      font-weight: 600;
-    }
-
-    .section__actions {
-      display: flex;
-      gap: 0.5rem;
-    }
-
+    /* BUTTONS */
     .btn {
-      border-radius: 4px;
-      border: 1px solid transparent;
-      padding: 0.45rem 0.9rem;
-      font-size: 0.85rem;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-      background: #ffffff;
-      color: var(--color-primary);
-      border-color: var(--color-primary-light);
-      transition: background 0.15s ease, color 0.15s ease;
+      padding: .45rem .9rem; border-radius: 4px; border: 1px solid var(--primary-light);
+      background: #fff; color: var(--primary); cursor: pointer; font-size: .85rem;
     }
+    .btn--primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .btn:hover { background: var(--primary-light); color: #fff; }
 
-    .btn--primary {
-      background: var(--color-primary);
-      color: #ffffff;
-      border-color: var(--color-primary);
-    }
+    /* TABLE */
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--border); }
+    th, td { padding: .6rem .75rem; border-bottom: 1px solid var(--border); }
+    th { background: #f8fafc; font-size: .8rem; text-transform: uppercase; color: #6b7a89; }
 
-    .btn:hover {
-      background: var(--color-primary-light);
-      color: #ffffff;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.85rem;
-      background: #ffffff;
-      border-radius: 6px;
-      overflow: hidden;
-      border: 1px solid var(--color-border);
-    }
-
-    th, td {
-      padding: 0.6rem 0.75rem;
-      border-bottom: 1px solid var(--color-border);
-      text-align: left;
-    }
-
-    th {
-      background: #f8fafc;
-      font-weight: 600;
-      font-size: 0.8rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: #6b7a89;
-    }
-
-    tr:last-child td {
-      border-bottom: none;
-    }
-
-    .badge {
-      display: inline-block;
-      padding: 0.15rem 0.5rem;
-      border-radius: 999px;
-      font-size: 0.75rem;
-      font-weight: 600;
-    }
-
-    .badge--success {
-      background: #e9f7ef;
-      color: #1e8449;
-    }
-
-    .badge--warning {
-      background: #fef5e7;
-      color: #b9770e;
-    }
-
-    .badge--danger {
-      background: #fdedec;
-      color: #c0392b;
-    }
-
-    .text-muted {
-      opacity: 0.7;
-      font-size: 0.8rem;
-    }
+    /* BADGES */
+    .badge { padding: .15rem .5rem; border-radius: 999px; font-size: .75rem; font-weight: 600; }
+    .badge--success { background: #e9f7ef; color: #1e8449; }
+    .badge--warning { background: #fef5e7; color: #b9770e; }
+    .badge--danger { background: #fdedec; color: #c0392b; }
 
     @media (max-width: 768px) {
-      body {
-        flex-direction: column;
-      }
-      .sidebar {
-        width: 100%;
-        flex-direction: row;
-        align-items: center;
-        gap: 1rem;
-        padding: 0.75rem 1rem;
-        overflow-x: auto;
-      }
-      .sidebar__logo {
-        margin-bottom: 0;
-      }
-      .sidebar__section-title,
-      .sidebar__footer {
-        display: none;
-      }
-      .sidebar__nav {
-        display: flex;
-        gap: 0.25rem;
-      }
-      .layout {
-        flex: 1;
-      }
+      body { flex-direction: column; }
+      .sidebar { width: 100%; flex-direction: row; overflow-x: auto; }
+      .sidebar__section-title, .sidebar__footer { display: none; }
+      .sidebar__nav { display: flex; gap: .25rem; }
     }
   </style>
 </head>
+
 <body>
   <aside class="sidebar">
-    <div class="sidebar__logo">
-      <span>TP</span> Taller Pro
-    </div>
+    <div class="sidebar__logo"><span>TP</span> Taller Pro</div>
 
     <div class="sidebar__section-title">Módulos</div>
     <ul class="sidebar__nav">
-      <li class="sidebar__nav-item">
-        <button class="sidebar__nav-button sidebar__nav-button--active" data-section="dashboard">
-          Dashboard
-        </button>
-      </li>
-      <li class="sidebar__nav-item">
-        <button class="sidebar__nav-button" data-section="ordenes">
-          Órdenes de trabajo
-        </button>
-      </li>
-      <li class="sidebar__nav-item">
-        <button class="sidebar__nav-button" data-section="clientes">
-          Clientes
-        </button>
-      </li>
-      <li class="sidebar__nav-item">
-        <button class="sidebar__nav-button" data-section="inventario">
-          Inventario
-        </button>
-      </li>
-      <li class="sidebar__nav-item">
-        <button class="sidebar__nav-button" data-section="reportes">
-          Reportes
-        </button>
-      </li>
-      <li class="sidebar__nav-item">
-        <button class="sidebar__nav-button" data-section="configuracion">
-          Configuración
-        </button>
-      </li>
+      <li><button class="sidebar__nav-button sidebar__nav-button--active" data-section="dashboard">Dashboard</button></li>
+      <li><button class="sidebar__nav-button" data-section="ordenes">Órdenes</button></li>
+      <li><button class="sidebar__nav-button" data-section="clientes">Clientes</button></li>
+      <li><button class="sidebar__nav-button" data-section="inventario">Inventario</button></li>
+      <li><button class="sidebar__nav-button" data-section="reportes">Reportes</button></li>
+      <li><button class="sidebar__nav-button" data-section="configuracion">Configuración</button></li>
     </ul>
 
-    <div class="sidebar__footer">
-      <strong>Taller Pro</strong>
-      Control de taller – prototipo PWA
-    </div>
+    <div class="sidebar__footer">Taller Pro – PWA</div>
   </aside>
 
   <div class="layout">
     <header class="topbar">
-      <div class="topbar__title">Panel de control del taller</div>
-      <div class="topbar__meta">
-        Estado: <span class="badge badge--success">Online</span>
-      </div>
+      <div class="topbar__title">Panel de control</div>
+      <div>Estado: <span class="badge badge--success">Online</span></div>
     </header>
 
     <main class="content">
+
       <!-- DASHBOARD -->
       <section id="section-dashboard" class="section section--active">
         <div class="section__header">
           <h1 class="section__title">Dashboard</h1>
-          <div class="section__actions">
+          <div>
             <button class="btn btn--primary">Nueva orden</button>
             <button class="btn">Actualizar</button>
           </div>
         </div>
 
         <div class="cards">
-          <article class="card">
-            <div class="card__title">Órdenes abiertas</div>
-            <div class="card__value">12</div>
-            <div class="card__subtitle">En proceso en el taller</div>
-          </article>
-          <article class="card">
-            <div class="card__title">Entregas hoy</div>
-            <div class="card__value">5</div>
-            <div class="card__subtitle">Compromisos con clientes</div>
-          </article>
-          <article class="card">
-            <div class="card__title">Facturación del día</div>
-            <div class="card__value">Q 7,850</div>
-            <div class="card__subtitle">Servicios y repuestos</div>
-          </article>
-          <article class="card">
-            <div class="card__title">Alertas de inventario</div>
-            <div class="card__value">3</div>
-            <div class="card__subtitle">Repuestos bajo mínimo</div>
-          </article>
+          <div class="card"><div class="card__title">Órdenes abiertas</div><div class="card__value">12</div></div>
+          <div class="card"><div class="card__title">Entregas hoy</div><div class="card__value">5</div></div>
+          <div class="card"><div class="card__title">Facturación</div><div class="card__value">Q 7,850</div></div>
+          <div class="card"><div class="card__title">Alertas inventario</div><div class="card__value">3</div></div>
         </div>
 
-        <h2 style="font-size: 0.95rem; margin-bottom: 0.5rem;">Órdenes recientes</h2>
+        <h2 style="margin:1rem 0 .5rem;">Órdenes recientes</h2>
         <table>
-          <thead>
-            <tr>
-              <th># Orden</th>
-              <th>Cliente</th>
-              <th>Vehículo</th>
-              <th>Estado</th>
-              <th>Entrega</th>
-            </tr>
-          </thead>
+          <thead><tr><th>#</th><th>Cliente</th><th>Vehículo</th><th>Estado</th><th>Entrega</th></tr></thead>
           <tbody>
-            <tr>
-              <td>OT-2026-0012</td>
-              <td>Transportes del Norte</td>
-              <td>Camión NPR HD</td>
-              <td><span class="badge badge--warning">En proceso</span></td>
-              <td>Hoy 16:00</td>
-            </tr>
-            <tr>
-              <td>OT-2026-0011</td>
-              <td>Logística Centroamericana</td>
-              <td>Furgón Foton Aumark</td>
-              <td><span class="badge badge--success">Listo</span></td>
-              <td>Hoy 11:30</td>
-            </tr>
-            <tr>
-              <td>OT-2026-0010</td>
-              <td>Cliente mostrador</td>
-              <td>Isuzu D-MAX</td>
-              <td><span class="badge badge--danger">En espera de repuesto</span></td>
-              <td>Mañana</td>
-            </tr>
+            <tr><td>OT-0012</td><td>Transportes GT</td><td>NPR HD</td><td><span class="badge badge--warning">En proceso</span></td><td>Hoy</td></tr>
+            <tr><td>OT-0011</td><td>Logística CA</td><td>Foton Aumark</td><td><span class="badge badge--success">Listo</span></td><td>Hoy</td></tr>
+            <tr><td>OT-0010</td><td>Mostrador</td><td>D-MAX</td><td><span class="badge badge--danger">Sin repuesto</span></td><td>Mañana</td></tr>
           </tbody>
         </table>
       </section>
@@ -451,124 +153,60 @@
       <section id="section-ordenes" class="section">
         <div class="section__header">
           <h1 class="section__title">Órdenes de trabajo</h1>
-          <div class="section__actions">
-            <button class="btn btn--primary">Nueva orden</button>
-            <button class="btn">Buscar</button>
-          </div>
+          <button class="btn btn--primary">Nueva orden</button>
         </div>
-        <p class="text-muted">
-          Aquí se gestionan las órdenes de trabajo: recepción, diagnóstico, autorización, ejecución, cierre y facturación.
-        </p>
-        <br />
-        <table>
-          <thead>
-            <tr>
-              <th># Orden</th>
-              <th>Cliente</th>
-              <th>Placa</th>
-              <th>Estado</th>
-              <th>Monto</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>OT-2026-0009</td>
-              <td>Flota Comercial GT</td>
-              <td>P123FRT</td>
-              <td><span class="badge badge--warning">Diagnóstico</span></td>
-              <td>Q 0.00</td>
-            </tr>
-            <tr>
-              <td>OT-2026-0008</td>
-              <td>Cliente mostrador</td>
-              <td>P987HJK</td>
-              <td><span class="badge badge--success">Cerrada</span></td>
-              <td>Q 2,350.00</td>
-            </tr>
-          </tbody>
-        </table>
+        <p>Gestión completa de órdenes: recepción, diagnóstico, autorización, ejecución y cierre.</p>
       </section>
 
       <!-- CLIENTES -->
       <section id="section-clientes" class="section">
         <div class="section__header">
           <h1 class="section__title">Clientes</h1>
-          <div class="section__actions">
-            <button class="btn btn--primary">Nuevo cliente</button>
-          </div>
+          <button class="btn btn--primary">Nuevo cliente</button>
         </div>
-        <p class="text-muted">
-          Módulo para administración de clientes: flotas, empresas, crédito, contactos y condiciones comerciales.
-        </p>
+        <p>Administración de clientes, flotas, contactos y condiciones comerciales.</p>
       </section>
 
       <!-- INVENTARIO -->
       <section id="section-inventario" class="section">
         <div class="section__header">
           <h1 class="section__title">Inventario</h1>
-          <div class="section__actions">
-            <button class="btn btn--primary">Nuevo repuesto</button>
-            <button class="btn">Importar</button>
-          </div>
+          <button class="btn btn--primary">Nuevo repuesto</button>
         </div>
-        <p class="text-muted">
-          Control de repuestos, existencias mínimas, costos, equivalencias y bodegas.
-        </p>
+        <p>Control de existencias, mínimos, costos y movimientos.</p>
       </section>
 
       <!-- REPORTES -->
       <section id="section-reportes" class="section">
-        <div class="section__header">
-          <h1 class="section__title">Reportes</h1>
-        </div>
-        <p class="text-muted">
-          Reportes operativos y financieros: productividad, facturación, tiempos de ciclo, utilización de bahías, etc.
-        </p>
+        <h1 class="section__title">Reportes</h1>
+        <p>Indicadores operativos y financieros del taller.</p>
       </section>
 
       <!-- CONFIGURACIÓN -->
       <section id="section-configuracion" class="section">
-        <div class="section__header">
-          <h1 class="section__title">Configuración</h1>
-        </div>
-        <p class="text-muted">
-          Parámetros del sistema: usuarios, roles, catálogos, integración con facturación electrónica y otros sistemas.
-        </p>
+        <h1 class="section__title">Configuración</h1>
+        <p>Usuarios, roles, catálogos e integraciones.</p>
       </section>
+
     </main>
   </div>
 
-  <!-- Registro del Service Worker (PWA) -->
   <script>
-    // Navegación entre secciones
-    const navButtons = document.querySelectorAll(".sidebar__nav-button");
+    const buttons = document.querySelectorAll(".sidebar__nav-button");
     const sections = document.querySelectorAll(".section");
 
-    navButtons.forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const target = btn.getAttribute("data-section");
-
-        navButtons.forEach((b) => b.classList.remove("sidebar__nav-button--active"));
+    buttons.forEach(btn => {
+      btn.onclick = () => {
+        buttons.forEach(b => b.classList.remove("sidebar__nav-button--active"));
         btn.classList.add("sidebar__nav-button--active");
 
-        sections.forEach((section) => {
-          section.classList.toggle(
-            "section--active",
-            section.id === `section-${target}`
-          );
-        });
-      });
+        const target = btn.dataset.section;
+        sections.forEach(s => s.classList.toggle("section--active", s.id === `section-${target}`));
+      };
     });
 
-    // Registro básico del service worker
     if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => {
-        navigator.serviceWorker
-          .register("/service-worker.js")
-          .catch((err) => {
-            console.warn("Service worker no se pudo registrar:", err);
-          });
-      });
+      navigator.serviceWorker.register("/service-worker.js");
     }
   </script>
 </body>

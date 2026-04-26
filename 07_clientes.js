@@ -1,4 +1,4 @@
-/* TallerPro GT — js/13_config.js */
+/* TallerPro GT — js/10_iva_contab.js */
 /* Generado automáticamente — editar este archivo */
 
 

@@ -1,4 +1,4 @@
-/* TallerPro GT — js/13_config.js */
+/* TallerPro GT — js/04_onboarding.js */
 /* Generado automáticamente — editar este archivo */
 
 

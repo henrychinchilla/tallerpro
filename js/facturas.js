@@ -1,9 +1,6 @@
-/* TallerPro GT — js/facturas.js
-   Módulo independiente — cada archivo tiene funciones específicas
-   Para editar: modificar solo este archivo y recargar
-*/
+/* TallerPro GT — facturas.js */
 
-function renderFacturas(content,actions){
+async function renderFacturas(content,actions){
   if(!adminOSupervisor()){content.innerHTML='<div class="alert alert-red">Acceso: Supervisor o Admin</div>';return;}
   const facturas=await dbGetAll('facturas');
   facturas.sort((a,b)=>(a.fecha||'')<(b.fecha||'')?1:-1);
@@ -60,6 +57,78 @@ function addLineaFactura(){
   const list=document.getElementById('lineas_fac');
   const i=Date.now();const div=document.createElement('div');
   div.innerHTML=lineaFacturaRow({},i);list.appendChild(div.firstChild);calcFacTotales();
+}
+
+function getLineasFactura(){
+  // Formato nuevo: lr0, ld0, lq0, lu0, lp0
+  var rowsNew = Array.from(document.querySelectorAll('div[id]')).filter(function(r){
+    return /^lr\d+$/.test(r.id);
+  });
+  if (rowsNew.length) {
+    return rowsNew.map(function(r) {
+      var ix = r.id.replace('lr','');
+      return {
+        desc: (document.getElementById('ld'+ix)||{}).value||'',
+        qty:  parseFloat((document.getElementById('lq'+ix)||{}).value)||1,
+        unit: parseFloat((document.getElementById('lu'+ix)||{}).value)||0,
+        desc_pct: parseFloat((document.getElementById('lp'+ix)||{}).value)||0
+      };
+    }).filter(function(l){ return l.desc||l.unit>0; });
+  }
+  // Formato legacy: lf_row_X
+  return Array.from(document.querySelectorAll('[id^="lf_row_"]')).map(function(r) {
+    var ix = r.id.split('_').pop();
+    return {
+      desc: (document.getElementById('lf_d_'+ix)||{}).value||'',
+      qty:  parseFloat((document.getElementById('lf_q_'+ix)||{}).value)||1,
+      unit: parseFloat((document.getElementById('lf_u_'+ix)||{}).value)||0,
+      desc_pct: parseFloat((document.getElementById('lf_p_'+ix)||{}).value)||0
+    };
+  }).filter(function(l){ return l.desc||l.unit>0; });
+}
+function getLF() { return getLineasFactura(); }
+
+
+
+function calcLFTotal(i) {
+  var qty  = parseFloat((document.getElementById('lq'+i)||{}).value)||0;
+  var unit = parseFloat((document.getElementById('lu'+i)||{}).value)||0;
+  var desc = parseFloat((document.getElementById('lp'+i)||{}).value)||0;
+  var tot  = qty * unit * (1 - desc/100);
+  var el   = document.getElementById('lt'+i);
+  if (el) el.textContent = 'Q ' + tot.toFixed(2);
+}
+
+var calcTotFac = function(){ if(typeof calcFacTotales==="function") calcFacTotales(); };
+function calcFacTotales(){
+  try{
+    // Leer TODAS las líneas (incluso vacías) para mostrar totales en tiempo real
+    var rowsNew = Array.from(document.querySelectorAll('div[id]')).filter(function(r){
+      return /^lr\d+$/.test(r.id);
+    });
+    var lineasAll = rowsNew.length ? rowsNew.map(function(r){
+      var ix = r.id.replace('lr','');
+      return {
+        qty:  parseFloat((document.getElementById('lq'+ix)||{}).value)||0,
+        unit: parseFloat((document.getElementById('lu'+ix)||{}).value)||0,
+        desc_pct: parseFloat((document.getElementById('lp'+ix)||{}).value)||0
+      };
+    }) : getLineasFactura();
+    const bruto=lineasAll.reduce((a,l)=>a+(l.qty*l.unit),0);
+    const desc=lineasAll.reduce((a,l)=>a+(l.qty*l.unit*(l.desc_pct||0)/100),0);
+    const sub=parseFloat((bruto-desc).toFixed(2));
+    const iva=parseFloat((sub*IVA).toFixed(2));
+    const total=parseFloat((sub+iva).toFixed(2));
+    const el=document.getElementById('fac_tots')||document.getElementById('fac_totales');if(!el)return;
+    const row=(label,val,cls='',bold=false)=>`<div style="display:flex;justify-content:space-between;gap:24px;font-size:${bold?'14':'13'}px;${bold?'font-weight:700;':''}color:${cls?`var(--${cls})`:'var(--text2)'};${bold?'border-top:1px solid var(--border);padding-top:8px;margin-top:4px':''}"><span>${label}</span><span style="font-family:var(--font-mono)">Q&nbsp;${fmtNum(val)}</span></div>`;
+    el.innerHTML=`<div style="display:inline-block;text-align:right;min-width:280px;background:var(--bg3);border-radius:var(--radius);padding:14px 16px;border:1px solid var(--border)">
+      ${row('Subtotal bruto:',bruto)}
+      ${desc>0?row('(-) Descuentos:',desc,'red'):''}
+      ${row('Subtotal neto:',sub)}
+      ${row('IVA (12%):',iva,'accent')}
+      ${row('TOTAL A PAGAR:',total,'green',true)}
+    </div>`;
+  }catch(e){}
 }
 
 function cargarNITCliente(){
@@ -161,408 +230,370 @@ async function marcarPagada(id,actual){
 async function eliminarFactura(id){if(!soloAdmin())return;if(!confirm('\u00BFEliminar factura?'))return;await dbDelete('facturas',id);await navTo('facturas');}
 
 /* ---- ALERTAS AMPLIADAS ---- */
-const CUENTAS_TALLER={
-  '1101':'Caja y bancos','1102':'Cuentas por cobrar clientes','1103':'Inventario repuestos',
-  '1201':'Equipo y maquinaria','1202':'Depreciaci\u00F3n acumulada',
-  '2101':'Cuentas por pagar proveedores','2102':'IVA por pagar SAT',
-  '2103':'ISR por pagar','2104':'IGSS por pagar',
-  '3101':'Capital social','3102':'Utilidades retenidas',
-  '4101':'Ingresos mano de obra','4102':'Ingresos repuestos/insumos',
-  '5101':'Costo de ventas repuestos','5102':'Salarios y prestaciones',
-  '5103':'Alquiler local','5104':'Depreciaci\u00F3n del per\u00EDodo',
-  '5105':'Servicios p\u00FAblicos','5106':'Combustible y transporte','5107':'Otros gastos'
-};
+async function generarAlertasAutomaticas(){
+  const [vehiculos,repuestos,insumos,alertasEx,facturas,ordenes]=await Promise.all([
+    dbGetAll('vehiculos'),dbGetAll('repuestos'),dbGetAll('insumos'),
+    dbGetAll('alertas'),dbGetAll('facturas'),dbGetAll('ordenes')
+  ]);
 
-async function renderAsientos(content, actions){
-  if(!soloAdmin()){content.innerHTML='<div class="alert alert-red">Solo administradores</div>';return;}
-  const asientos=await dbGetAll('asientos');
-  asientos.sort((a,b)=>(a.fecha||'')<(b.fecha||'')?1:-1);
-  actions.innerHTML=`
-    <button class="btn btn-secondary" onclick="generarAsientosDesdeFacturas()">\u26A1 Auto-generar</button>
-    <button class="btn btn-primary" onclick="modalAsiento()">+ Nuevo asiento</button>`;
-  const mes=today().slice(0,7);
-  const asMes=asientos.filter(a=>a.fecha&&a.fecha.startsWith(mes));
-  const totDebe=asMes.reduce((s,a)=>s+(a.debe||0),0);
-  const totHaber=asMes.reduce((s,a)=>s+(a.haber||0),0);
-  const cuadrado=Math.abs(totDebe-totHaber)<0.01;
+  const nuevas=[];
+  const existe=(ref)=>alertasEx.some(a=>a.ref===ref);
 
-  // Balance simple
-  const saldos={};
-  for(const a of asMes){
-    if(a.cuentaDebe){if(!saldos[a.cuentaDebe])saldos[a.cuentaDebe]={debe:0,haber:0};saldos[a.cuentaDebe].debe+=(a.debe||0);}
-    if(a.cuentaHaber){if(!saldos[a.cuentaHaber])saldos[a.cuentaHaber]={debe:0,haber:0};saldos[a.cuentaHaber].haber+=(a.haber||0);}
+  // 1. Mantenimiento pr\u00F3ximo
+  for(const v of vehiculos){
+    if(!v.proximoServicio)continue;
+    const dias=diasRestantes(v.proximoServicio);
+    if(dias<=15&&dias>=-30){
+      const ref=`serv_${v.id}_${v.proximoServicio}`;
+      if(!existe(ref))nuevas.push({tipo:'mantenimiento',ref,vista:false,
+        titulo:`Mantenimiento pr\u00F3ximo: ${v.placa} \u2014 ${v.modelo||''}`,
+        descripcion:`${dias>=0?`En ${dias} d\u00EDas`:`VENCIDO hace ${Math.abs(dias)} d\u00EDas`} \u2014 ${v.tipoServicio||'Servicio preventivo'}. Cliente: ${v.clienteNombre||''}`,
+        fecha:today(),vehiculoId:v.id,prioridad:dias<0?'alta':dias<=5?'alta':'media'});
+    }
   }
+
+  // 2. Stock bajo en repuestos e insumos
+  for(const r of [...repuestos,...insumos]){
+    if((r.stock||0)<=(r.stockMin||5)){
+      const ref=`stock_${r.id}_${r.tipo||'rep'}`;
+      if(!existe(ref))nuevas.push({tipo:'stock',ref,vista:false,
+        titulo:`Stock bajo: ${r.nombre}`,
+        descripcion:`Stock: ${r.stock||0} uds. M\u00EDnimo: ${r.stockMin||5}. Proveedor: ${r.proveedor||'N/A'}`,
+        fecha:today(),prioridad:(r.stock||0)===0?'alta':'media'});
+    }
+  }
+
+  // 3. Caducidad de productos (< 30 d\u00EDas)
+  for(const r of [...repuestos,...insumos]){
+    if(!r.fechaCaducidad)continue;
+    const dias=diasRestantes(r.fechaCaducidad);
+    if(dias<=30){
+      const ref=`cad_${r.id}_${r.fechaCaducidad}`;
+      if(!existe(ref))nuevas.push({tipo:'vencimiento',ref,vista:false,
+        titulo:`Caducidad pr\u00F3xima: ${r.nombre}`,
+        descripcion:`${dias>=0?`Vence en ${dias} d\u00EDas (${fechaLegible(r.fechaCaducidad)})`:`VENCIDO el ${fechaLegible(r.fechaCaducidad)}`}. Stock: ${r.stock||0} uds.`,
+        fecha:today(),prioridad:dias<0?'alta':'media'});
+    }
+  }
+
+  // 4. M\u00E1rgenes por debajo del 20%
+  for(const r of [...repuestos,...insumos]){
+    if(r.costo>0&&r.precio>0){
+      const m=(r.precio-r.costo)/r.precio;
+      if(m<MARGEN_MIN){
+        const ref=`margen_${r.id}`;
+        if(!existe(ref))nuevas.push({tipo:'margen',ref,vista:false,
+          titulo:`Margen bajo: ${r.nombre}`,
+          descripcion:`Margen actual: ${(m*100).toFixed(1)}% (m\u00EDnimo 20%). Compra: Q${r.costo.toFixed(2)} | Venta: Q${r.precio.toFixed(2)}`,
+          fecha:today(),prioridad:'media'});
+      }
+    }
+  }
+
+  // 5. Facturas pendientes de pago (>30 d\u00EDas)
+  const hoy=new Date();
+  for(const f of facturas.filter(x=>!x.pagada&&x.fecha)){
+    const diasPend=Math.floor((hoy-new Date(f.fecha+'T00:00:00'))/(864e5));
+    if(diasPend>30){
+      const ref=`cobro_${f.id}`;
+      if(!existe(ref))nuevas.push({tipo:'cobro',ref,vista:false,
+        titulo:`Factura sin cobrar: ${f.noFactura}`,
+        descripcion:`Cliente: ${f.clienteNombre} | Total: Q${(f.total||0).toFixed(2)} | ${diasPend} d\u00EDas pendiente`,
+        fecha:today(),prioridad:'alta'});
+    }
+  }
+
+  // 6. \u00D3rdenes abiertas sin actualizar (>7 d\u00EDas en mismo estado)
+  for(const o of ordenes.filter(x=>x.estado==='en_proceso'&&x.updatedAt)){
+    const diasSinMov=Math.floor((hoy-new Date(o.updatedAt))/(864e5));
+    if(diasSinMov>7){
+      const ref=`ot_stale_${o.id}`;
+      if(!existe(ref))nuevas.push({tipo:'correctivo',ref,vista:false,
+        titulo:`OT sin actualizar: ${o.noOT}`,
+        descripcion:`Placa ${o.placa} \u2014 ${diasSinMov} d\u00EDas en estado "en proceso". T\u00E9cnico: ${o.tecnico||'N/A'}`,
+        fecha:today(),prioridad:'media'});
+    }
+  }
+
+  for(const a of nuevas)await dbAdd('alertas',a);
+}
+
+
+
+
+
+async function eliminarAlerta(id){await dbDelete('alertas',id);await navTo('alertas');}
+async function exportarAlertas(){
+  const alertas=await dbGetAll('alertas');
+  const vehiculos=await dbGetAll('vehiculos');
+  const clientes=await dbGetAll('clientes');
+  const cfg=await dbGet('config','taller')||{};
+  let txt='MENSAJES WHATSAPP \u2014 '+( cfg.nombre||'TALLER PRO GT')+'\n'+'='.repeat(50)+'\n\n';
+  for(const a of alertas.filter(x=>!x.vista&&x.tipo==='mantenimiento')){
+    const v=vehiculos.find(x=>x.id===a.vehiculoId);
+    const c=v?clientes.find(x=>x.id===v?.clienteId):null;
+    txt+=`PARA: ${c?.whatsapp||c?.telefono||'\u2014'}\nMENSAJE:\nEstimado/a ${c?.nombre||'cliente'}, le recordamos que su veh\u00EDculo *${v?.placa||''} ${v?.modelo||''}* tiene programado su servicio de *${v?.tipoServicio||'mantenimiento'}* pr\u00F3ximamente.\n\nComun\u00EDquese con nosotros para confirmar su cita.\n\n${cfg.nombre||'TallerPro GT'}\n${cfg.telefono||''}\n\n${'-'.repeat(40)}\n\n`;
+  }
+  const blob=new Blob([txt],{type:'text/plain'});
+  const url=URL.createObjectURL(blob);
+  const a2=document.createElement('a');a2.href=url;a2.download='alertas_whatsapp.txt';a2.click();
+}
+
+/* ---- DASHBOARD PRINCIPAL ---- */
+async function renderDashboard(content,actions){
+  const [facturas,ordenes,repuestos,insumos,clientes,alertas,costos,empleados]=await Promise.all([
+    dbGetAll('facturas'),dbGetAll('ordenes'),dbGetAll('repuestos'),dbGetAll('insumos'),
+    dbGetAll('clientes'),dbGetAll('alertas'),dbGetAll('costos'),dbGetAll('empleados')
+  ]);
+  const mes=today().slice(0,7);
+  const fMes=facturas.filter(f=>f.fecha?.startsWith(mes));
+  const ingBrutos=fMes.reduce((a,f)=>a+(f.total||0),0);
+  const ivaCob=fMes.reduce((a,f)=>a+(f.iva||0),0);
+  const ingNetos=fMes.reduce((a,f)=>a+(f.subtotal||0),0);
+  const costMes=costos.filter(c=>c.fecha?.startsWith(mes)).reduce((a,c)=>a+(c.monto||0),0);
+  const utilidad=ingNetos-costMes;
+  const pendAlerts=alertas.filter(a=>!a.vista).length;
+  const stockBajo=[...repuestos,...insumos].filter(i=>(i.stock||0)<=(i.stockMin||5)).length;
+  const otsAbiertas=ordenes.filter(o=>o.estado!=='completada'&&o.estado!=='entregada').length;
+  const margen=ingNetos>0?(utilidad/ingNetos*100).toFixed(1):0;
 
   content.innerHTML=`
-  <div class="section-title">Contabilidad \u2014 Libro Diario</div>
-  <div class="section-sub">Asientos contables del per\u00EDodo \u2014 ${mes}</div>
+  <div class="section-title">Dashboard General</div>
+  <div class="section-sub">${fechaLegible(today())} \u2014 Usuario: <strong>${sesionActual?.nombre}</strong> <span class="badge badge-${sesionActual?.perfil==='admin'?'red':sesionActual?.perfil==='supervisor'?'amber':'blue'}">${PERFILES[sesionActual?.perfil]?.label||''}</span></div>
   <div class="stat-grid">
-    <div class="stat-card stat-green"><div class="stat-label">Total DEBE mes</div><div class="stat-value">${fmt(totDebe)}</div></div>
-    <div class="stat-card stat-blue"><div class="stat-label">Total HABER mes</div><div class="stat-value">${fmt(totHaber)}</div></div>
-    <div class="stat-card ${cuadrado?'stat-green':'stat-red'}"><div class="stat-label">Balance</div><div class="stat-value" style="font-size:16px">${cuadrado?'\u2713 Cuadrado':'\u26A0 Diferencia'}</div><div class="stat-sub">${cuadrado?'0.00':fmt(Math.abs(totDebe-totHaber))}</div></div>
-    <div class="stat-card"><div class="stat-label">Asientos mes</div><div class="stat-value">${asMes.length}</div></div>
+    <div class="stat-card stat-green"><div class="stat-label">Facturaci\u00F3n bruta mes</div><div class="stat-value">${fmt(ingBrutos)}</div><div class="stat-sub">${fMes.length} facturas</div></div>
+    <div class="stat-card stat-blue"><div class="stat-label">Utilidad neta mes</div><div class="stat-value">${fmt(utilidad)}</div><div class="stat-sub">Margen: ${margen}%</div></div>
+    <div class="stat-card stat-amber"><div class="stat-label">IVA generado mes</div><div class="stat-value">${fmt(ivaCob)}</div><div class="stat-sub">Por declarar a SAT</div></div>
+    <div class="stat-card ${utilidad>=0?'stat-green':'stat-red'}"><div class="stat-label">Resultado mes</div><div class="stat-value" style="font-size:18px">${utilidad>=0?'\u2713 GANANCIA':'\u2717 P\u00C9RDIDA'}</div></div>
+  </div>
+  <div class="stat-grid">
+    <div class="stat-card ${otsAbiertas>0?'stat-amber':''}"><div class="stat-label">OT abiertas</div><div class="stat-value">${otsAbiertas}</div></div>
+    <div class="stat-card ${pendAlerts>0?'stat-red':''}"><div class="stat-label">Alertas</div><div class="stat-value">${pendAlerts}</div></div>
+    <div class="stat-card ${stockBajo>0?'stat-red':''}"><div class="stat-label">Stock bajo</div><div class="stat-value">${stockBajo} items</div></div>
+    <div class="stat-card"><div class="stat-label">Clientes</div><div class="stat-value" style="color:var(--purple)">${clientes.length}</div></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <div class="card">
+      <div class="card-header"><span class="card-title">\u00DAltimas \u00F3rdenes</span><button class="btn btn-sm btn-secondary" onclick="navTo('ordenes')">Ver todas</button></div>
+      ${ordenes.slice(-6).reverse().map(o=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)">
+        <div><div style="font-size:13px;font-weight:500">${o.noOT||'OT'} \u2014 ${o.placa||''}</div><div style="font-size:11px;color:var(--text2)">${o.tecnico||'\u2014'} | ${fechaLegible(o.fecha)}</div></div>
+        <span class="badge badge-${o.estado==='entregada'?'green':o.estado==='completada'?'blue':o.estado==='en_proceso'?'amber':'gray'}">${o.estado||'nuevo'}</span>
+      </div>`).join('')||'<div class="text-muted text-center" style="padding:12px;font-size:13px">Sin \u00F3rdenes</div>'}
+    </div>
+    <div class="card">
+      <div class="card-header"><span class="card-title">Stock cr\u00EDtico</span></div>
+      ${[...repuestos,...insumos].filter(i=>(i.stock||0)<=(i.stockMin||5)).slice(0,6).map(i=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)">
+          <div style="font-size:13px">${i.nombre}</div>
+          <span class="badge badge-red">${i.stock||0}/${i.stockMin||5}</span>
+        </div>`).join('')||'<div class="text-muted text-center" style="padding:12px;font-size:13px">Stock OK \u2713</div>'}
+    </div>
+  </div>`;
+}
+
+/* ---- DASHBOARD KPI MEC\u00C1NICOS ---- */
+async function renderDashboard_mecanicos(content,actions){
+  if(!soloAdmin()){content.innerHTML='<div class="alert alert-red">Solo administradores</div>';return;}
+  const empleados=await dbGetAll('empleados');
+  const kpiData=await dbGetAll('kpi');
+  const ordenes=await dbGetAll('ordenes');
+  const mes=today().slice(0,7);
+  const mec\u00E1nicos=empleados.filter(e=>['Mec\u00E1nico','Mec\u00E1nico senior','Electricista','Auxiliar'].includes(e.cargo)&&e.activo!==false);
+
+  const metricas=mec\u00E1nicos.map(e=>{
+    const kpiMes=kpiData.filter(k=>k.empleadoId===e.id&&k.mes===mes);
+    const otsMes=ordenes.filter(o=>o.tecnico===e.nombre&&o.fecha?.startsWith(mes));
+    const totalFact=kpiMes.reduce((a,k)=>a+(k.totalFacturado||0),0);
+    const otsEntregadas=otsMes.filter(o=>o.estado==='entregada').length;
+    const otsTotales=otsMes.length;
+    const tasaEfect=otsTotales>0?(otsEntregadas/otsTotales*100).toFixed(0):0;
+    const horasTrab=otsMes.reduce((a,o)=>(o.manoObra||[]).reduce((b,m)=>b+(m.horas||0),0)+a,0);
+    const salario=e.salarioBase||0;
+    const metaFact=salario*3;// Meta: 3x el salario
+    const pctMeta=metaFact>0?(totalFact/metaFact*100).toFixed(0):0;
+    const bonus=totalFact>metaFact?(totalFact-metaFact)*0.05:0;// 5% sobre excedente
+    return{...e,kpiMes,otsMes,totalFact,otsEntregadas,otsTotales,tasaEfect,horasTrab,metaFact,pctMeta,bonus};
+  });
+
+  content.innerHTML=`
+  <div class="section-title">Dashboard KPI \u2014 Mec\u00E1nicos</div>
+  <div class="section-sub">Mes: ${mes} \u2014 Evaluaci\u00F3n de desempe\u00F1o y bonificaciones</div>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="stat-label">Mec\u00E1nicos activos</div><div class="stat-value" style="color:var(--purple)">${mec\u00E1nicos.length}</div></div>
+    <div class="stat-card stat-green"><div class="stat-label">Total facturado (equipo)</div><div class="stat-value">${fmt(metricas.reduce((a,m)=>a+m.totalFact,0))}</div></div>
+    <div class="stat-card stat-amber"><div class="stat-label">Bonificaciones a pagar</div><div class="stat-value">${fmt(metricas.reduce((a,m)=>a+m.bonus,0))}</div></div>
+    <div class="stat-card"><div class="stat-label">OTs completadas</div><div class="stat-value">${metricas.reduce((a,m)=>a+m.otsEntregadas,0)}</div></div>
   </div>
 
-  <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px">
-    <div class="card" style="padding:10px">
-      <div class="card-header"><span class="card-title">Libro Diario</span></div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>No.</th><th>Fecha</th><th>Descripci\u00F3n</th><th>Cta D\u00E9bito</th><th>Cta Cr\u00E9dito</th><th class="td-right">Debe Q</th><th class="td-right">Haber Q</th><th>Ref.</th><th></th></tr></thead>
-        <tbody>
-          ${asientos.map(a=>`<tr>
-            <td class="td-mono" style="font-size:10px">${a.noAsiento||a.id}</td>
-            <td style="font-size:11px;white-space:nowrap">${fechaLegible(a.fecha)}</td>
-            <td style="font-size:11px;max-width:160px">${a.descripcion||'\u2014'}</td>
-            <td style="font-size:10px;color:var(--green)">${a.cuentaDebe?'('+a.cuentaDebe+') '+(CUENTAS_TALLER[a.cuentaDebe]||a.cuentaDebe):'\u2014'}</td>
-            <td style="font-size:10px;color:var(--blue)">${a.cuentaHaber?'('+a.cuentaHaber+') '+(CUENTAS_TALLER[a.cuentaHaber]||a.cuentaHaber):'\u2014'}</td>
-            <td class="td-mono td-right text-green">${fmt(a.debe||0)}</td>
-            <td class="td-mono td-right text-blue">${fmt(a.haber||0)}</td>
-            <td style="font-size:10px;color:var(--text3)">${a.referencia||'\u2014'}</td>
-            <td><div class="flex gap-1">
-              <button class="btn btn-sm btn-secondary" onclick="modalAsiento(${a.id})">\u270F</button>
-              <button class="btn btn-sm btn-danger" onclick="eliminarAsiento(${a.id})">\u2715</button>
-            </div></td>
-          </tr>`).join('')||'<tr><td colspan="9" class="text-center text-muted" style="padding:16px;font-size:12px">Sin asientos. Usa "Auto-generar" para crear desde facturas.</td></tr>'}
-          ${asientos.length>0?`<tr style="background:var(--bg3);font-weight:700"><td colspan="5">TOTALES</td><td class="td-mono td-right text-green">${fmt(asientos.reduce((s,a)=>s+(a.debe||0),0))}</td><td class="td-mono td-right text-blue">${fmt(asientos.reduce((s,a)=>s+(a.haber||0),0))}</td><td colspan="2"></td></tr>`:''}
-        </tbody>
-      </table></div>
+  ${metricas.map(m=>`
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+      <div>
+        <div style="font-size:15px;font-weight:700">${m.nombre}</div>
+        <div style="font-size:12px;color:var(--text2)">${m.cargo} \u2014 Salario: ${fmt(m.salarioBase)}/mes</div>
+      </div>
+      ${m.bonus>0?`<div style="text-align:right"><div style="font-size:11px;color:var(--text3)">Bono desempe\u00F1o</div><div style="font-size:18px;font-weight:700;color:var(--green)">${fmt(m.bonus)}</div></div>`:'<span class="badge badge-gray">Sin bono este mes</span>'}
     </div>
-    <div>
-      <div class="card">
-        <div class="card-title" style="margin-bottom:10px">Balance de Comprobaci\u00F3n</div>
-        ${Object.keys(saldos).length===0?'<div class="text-muted text-center" style="font-size:12px;padding:10px">Sin movimientos este mes</div>':
-          `<div class="table-wrap"><table>
-            <thead><tr><th>Cuenta</th><th class="td-right">Debe</th><th class="td-right">Haber</th><th class="td-right">Saldo</th></tr></thead>
-            <tbody>${Object.entries(saldos).map(([cod,{debe,haber}])=>{
-              const s=debe-haber;
-              return`<tr><td style="font-size:10px">(${cod}) ${CUENTAS_TALLER[cod]||cod}</td>
-                <td class="td-mono td-right text-green" style="font-size:10px">${fmt(debe)}</td>
-                <td class="td-mono td-right text-blue" style="font-size:10px">${fmt(haber)}</td>
-                <td class="td-mono td-right ${s>=0?'text-green':'text-red'}" style="font-size:10px">${fmt(Math.abs(s))}</td></tr>`;
-            }).join('')}</tbody>
-          </table></div>`}
-      </div>
-      <div class="card">
-        <div class="card-title" style="margin-bottom:10px">Plan de Cuentas</div>
-        <div style="font-size:11px;line-height:2">
-          ${Object.entries(CUENTAS_TALLER).map(([c,n])=>{
-            const tipo=c[0]==='1'?'<span class="badge badge-green">Activo</span>':c[0]==='2'?'<span class="badge badge-red">Pasivo</span>':c[0]==='3'?'<span class="badge badge-blue">Capital</span>':c[0]==='4'?'<span class="badge badge-green">Ingreso</span>':'<span class="badge badge-amber">Egreso</span>';
-            return`<div style="display:flex;align-items:center;gap:6px;padding:1px 0"><span class="td-mono" style="font-size:10px;color:var(--text3)">${c}</span><span style="flex:1">${n}</span>${tipo}</div>`;
-          }).join('')}
-        </div>
-      </div>
+    <div class="stat-grid" style="grid-template-columns:repeat(4,1fr)">
+      <div class="stat-card"><div class="stat-label">Facturado</div><div class="stat-value" style="font-size:16px;color:var(--green)">${fmt(m.totalFact)}</div><div class="stat-sub">Meta: ${fmt(m.metaFact)}</div></div>
+      <div class="stat-card"><div class="stat-label">OTs totales</div><div class="stat-value" style="font-size:16px">${m.otsTotales}</div><div class="stat-sub">${m.otsEntregadas} entregadas</div></div>
+      <div class="stat-card"><div class="stat-label">Tasa efectividad</div><div class="stat-value" style="font-size:16px;color:var(--${parseInt(m.tasaEfect)>=80?'green':parseInt(m.tasaEfect)>=60?'accent':'red'})">${m.tasaEfect}%</div></div>
+      <div class="stat-card"><div class="stat-label">Horas trabajadas</div><div class="stat-value" style="font-size:16px">${m.horasTrab.toFixed(1)}</div><div class="stat-sub">hrs en OTs</div></div>
+    </div>
+    <div style="margin-top:10px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>Progreso meta de facturaci\u00F3n</span><span class="td-mono">${m.pctMeta}%</span></div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${Math.min(parseInt(m.pctMeta),100)}%;background:var(--${parseInt(m.pctMeta)>=100?'green':parseInt(m.pctMeta)>=70?'accent':'red'})"></div></div>
+    </div>
+    ${m.otsMes.slice(-3).length?`<div style="margin-top:10px;font-size:12px;color:var(--text2)">\u00DAltimas OT: ${m.otsMes.slice(-3).map(o=>`<span class="badge badge-gray">${o.noOT}</span>`).join(' ')}</div>`:''}
+  </div>`).join('')||'<div class="card text-center text-muted">No hay mec\u00E1nicos registrados</div>'}
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom:10px">Criterios de bonificaci\u00F3n</div>
+    <div style="font-size:13px;color:var(--text2);line-height:2">
+      \u2022 Meta mensual por t\u00E9cnico: <strong>3x el salario base</strong><br>
+      \u2022 Bono por excedente: <strong>5% sobre la facturaci\u00F3n que supere la meta</strong><br>
+      \u2022 Efectividad m\u00EDnima requerida: <strong>80% de OTs entregadas</strong><br>
+      \u2022 Las bonificaciones se incluyen autom\u00E1ticamente en la n\u00F3mina del mes
     </div>
   </div>`;
 }
 
-async function modalAsiento(id=null){
-  if(!soloAdmin())return;
-  const a=id?await dbGet('asientos',id):{};
-  const cuentasOpts=Object.entries(CUENTAS_TALLER).map(([c,n])=>`<option value="${c}" ${(a.cuentaDebe===c||a.cuentaHaber===c)?'':''}>( ${c} ) ${n}</option>`).join('');
-  const optsDebe=Object.entries(CUENTAS_TALLER).map(([c,n])=>`<option value="${c}" ${a.cuentaDebe===c?'selected':''}>(${c}) ${n}</option>`).join('');
-  const optsHaber=Object.entries(CUENTAS_TALLER).map(([c,n])=>`<option value="${c}" ${a.cuentaHaber===c?'selected':''}>(${c}) ${n}</option>`).join('');
-  openModal('modalAsiento',id?'Editar Asiento':'Nuevo Asiento Contable',`
-    <div class="form-row form-row-3">
-      <div class="form-group"><label>No. Asiento</label><input id="as_no" value="${a.noAsiento||genId('AS-')}"></div>
-      <div class="form-group"><label>Fecha *</label><input id="as_fecha" type="date" value="${a.fecha||today()}"></div>
-      <div class="form-group"><label>Referencia</label><input id="as_ref" value="${a.referencia||''}" placeholder="FAC-001, OT-002..."></div>
-    </div>
-    <div class="form-group"><label>Descripci\u00F3n del asiento *</label>
-      <input id="as_desc" value="${a.descripcion||''}" placeholder="Ej: Venta servicios del d\u00EDa, cobro factura...">
-    </div>
-    <div class="form-row form-row-2">
-      <div class="form-group"><label>Cuenta D\u00C9BITO (cargo) *</label>
-        <select id="as_cdebe"><option value="">\u2014 Seleccionar cuenta \u2014</option>${optsDebe}</select>
-      </div>
-      <div class="form-group"><label>Monto DEBE (Q) *</label>
-        <input id="as_debe" type="number" value="${a.debe||0}" step="0.01" min="0" oninput="previewAsiento()">
-      </div>
-    </div>
-    <div class="form-row form-row-2">
-      <div class="form-group"><label>Cuenta CR\u00C9DITO (abono) *</label>
-        <select id="as_chaber"><option value="">\u2014 Seleccionar cuenta \u2014</option>${optsHaber}</select>
-      </div>
-      <div class="form-group"><label>Monto HABER (Q) *</label>
-        <input id="as_haber" type="number" value="${a.haber||0}" step="0.01" min="0" oninput="previewAsiento()">
-      </div>
-    </div>
-    <div id="as_preview" style="background:var(--bg3);border-radius:6px;padding:10px;font-size:13px;margin-top:4px"></div>
-    
-  `,async()=>{
-    const desc=document.getElementById('as_desc').value.trim();
-    const debe=parseFloat(document.getElementById('as_debe').value)||0;
-    const haber=parseFloat(document.getElementById('as_haber').value)||0;
-    if(!desc||!debe||!haber){toast('Todos los campos son requeridos','red');return;}
-    if(Math.abs(debe-haber)>0.01){if(!confirm('\u26A0 Debe \u2260 Haber. El asiento no cuadra. \u00BFGuardar?'))return;}
-    const obj={noAsiento:document.getElementById('as_no').value,fecha:document.getElementById('as_fecha').value,
-      referencia:document.getElementById('as_ref').value,descripcion:desc,
-      cuentaDebe:document.getElementById('as_cdebe').value,debe,
-      cuentaHaber:document.getElementById('as_chaber').value,haber,updatedAt:nowTs()};
-    if(id){obj.id=id;await dbPut('asientos',obj);}else{obj.createdAt=nowTs();await dbAdd('asientos',obj);}
-    closeModal('modalAsiento');toast(id?'Asiento actualizado':'Asiento registrado');
-    await navTo('contabilidad');
+/* ---- DASHBOARD FINANCIERO ---- */
+async function renderDashboard_financiero(content,actions){
+  if(!soloAdmin()){content.innerHTML='<div class="alert alert-red">Solo administradores</div>';return;}
+  const [facturas,costos,activos,empleados,nomina]=await Promise.all([
+    dbGetAll('facturas'),dbGetAll('costos'),dbGetAll('activos'),dbGetAll('empleados'),dbGetAll('nomina')
+  ]);
+  const meses=[];
+  for(let i=5;i>=0;i--){const d=new Date();d.setMonth(d.getMonth()-i);meses.push(d.toISOString().slice(0,7));}
+  const depMen=activos.reduce((a,ac)=>a+(ac.valorOriginal-(ac.valorResidual||0))/(ac.vidaUtil||5)/12,0);
+  const nominaMen=nomina.filter(n=>n.mes===today().slice(0,7)).reduce((a,n)=>a+n.netoPagar,0);
+
+  const datos=meses.map(mes=>{
+    const ing=facturas.filter(f=>f.fecha?.startsWith(mes)).reduce((a,f)=>a+(f.subtotal||0),0);
+    const ivaCob=facturas.filter(f=>f.fecha?.startsWith(mes)).reduce((a,f)=>a+(f.iva||0),0);
+    const costOp=costos.filter(c=>c.fecha?.startsWith(mes)).reduce((a,c)=>a+(c.monto||0),0);
+    const nomM=nomina.filter(n=>n.mes===mes).reduce((a,n)=>a+(n.netoPagar||0),0);
+    const util=ing-costOp-nomM-depMen;
+    const isr=Math.max(util*ISR,0);
+    return{mes,ing,ivaCob,costOp,nomM,depMen,util,isr,utilNeta:util-isr};
   });
-  setTimeout(previewAsiento,80);
-}
 
-function sincronizarAsiento(){previewAsiento();}
-function previewAsiento(){
-  const debe=parseFloat(document.getElementById('as_debe')?.value)||0;
-  const haber=parseFloat(document.getElementById('as_haber')?.value)||0;
-  const diff=Math.abs(debe-haber);
-  const el=document.getElementById('as_preview');if(!el)return;
-  el.innerHTML=`<div style="display:flex;gap:20px;align-items:center">
-    <span>Debe: <strong class="text-green">Q ${fmtNum(debe)}</strong></span>
-    <span>Haber: <strong class="text-blue">Q ${fmtNum(haber)}</strong></span>
-    <span style="color:var(--${diff<0.01?'green':'red'})">${diff<0.01?'\u2713 Cuadrado':'\u26A0 Diferencia: Q '+fmtNum(diff)}</span>
+  const curr=datos[datos.length-1];
+  const acumulado=datos.reduce((a,d)=>({ing:a.ing+d.ing,costOp:a.costOp+d.costOp,util:a.util+d.util,utilNeta:a.utilNeta+d.utilNeta}),{ing:0,costOp:0,util:0,utilNeta:0});
+
+  content.innerHTML=`
+  <div class="section-title">Dashboard Financiero</div>
+  <div class="section-sub">Estado financiero integral \u2014 \u00FAltimos 6 meses</div>
+
+  <div class="stat-grid">
+    <div class="stat-card stat-green"><div class="stat-label">Ingresos netos mes</div><div class="stat-value">${fmt(curr.ing)}</div></div>
+    <div class="stat-card stat-red"><div class="stat-label">Costos operativos</div><div class="stat-value">${fmt(curr.costOp+curr.nomM+curr.depMen)}</div><div class="stat-sub">Op + N\u00F3mina + Dep.</div></div>
+    <div class="stat-card ${curr.util>=0?'stat-green':'stat-red'}"><div class="stat-label">Utilidad antes ISR</div><div class="stat-value">${fmt(curr.util)}</div></div>
+    <div class="stat-card stat-amber"><div class="stat-label">ISR estimado mes</div><div class="stat-value">${fmt(curr.isr)}</div><div class="stat-sub">25% s/utilidad</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom:12px">Estado de Resultados \u2014 6 meses</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Mes</th><th class="td-right">Ingresos netos</th><th class="td-right">Costos op.</th><th class="td-right">N\u00F3mina</th><th class="td-right">Depreciaci\u00F3n</th><th class="td-right">Util. bruta</th><th class="td-right">ISR 25%</th><th class="td-right">Util. neta</th><th class="td-right">Margen</th></tr></thead>
+      <tbody>
+        ${datos.map(d=>`<tr>
+          <td class="td-mono">${d.mes}</td>
+          <td class="td-mono td-right text-green">${fmt(d.ing)}</td>
+          <td class="td-mono td-right text-red">${fmt(d.costOp)}</td>
+          <td class="td-mono td-right text-red">${fmt(d.nomM)}</td>
+          <td class="td-mono td-right text-amber">${fmt(d.depMen)}</td>
+          <td class="td-mono td-right">${fmt(d.util)}</td>
+          <td class="td-mono td-right">${fmt(d.isr)}</td>
+          <td class="td-mono td-right" style="font-weight:700;color:var(--${d.utilNeta>=0?'green':'red'})">${fmt(d.utilNeta)}</td>
+          <td class="td-mono td-right">${d.ing>0?((d.utilNeta/d.ing)*100).toFixed(1):0}%</td>
+        </tr>`).join('')}
+        <tr style="background:var(--bg3);font-weight:700">
+          <td>ACUMULADO</td>
+          <td class="td-mono td-right text-green">${fmt(acumulado.ing)}</td>
+          <td class="td-mono td-right" colspan="3"></td>
+          <td class="td-mono td-right">${fmt(acumulado.util)}</td>
+          <td class="td-mono td-right"></td>
+          <td class="td-mono td-right" style="color:var(--${acumulado.utilNeta>=0?'green':'red'})">${fmt(acumulado.utilNeta)}</td>
+          <td class="td-mono td-right">${acumulado.ing>0?((acumulado.utilNeta/acumulado.ing)*100).toFixed(1):0}%</td>
+        </tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px">Estructura de costos (mes actual)</div>
+      ${[['Costos operativos',curr.costOp],['N\u00F3mina',curr.nomM],['Depreciaci\u00F3n activos',curr.depMen],['ISR estimado',curr.isr]].map(([k,v])=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+          <span>${k}</span><span class="td-mono text-red">${fmt(v)}</span>
+        </div>`).join('')}
+      <div style="display:flex;justify-content:space-between;padding:8px 0;font-weight:700;font-size:14px">
+        <span>Total costos:</span><span class="td-mono text-red">${fmt(curr.costOp+curr.nomM+curr.depMen+curr.isr)}</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px">ISR Trimestral proyectado</div>
+      ${[0,1,2,3].map(t=>{
+        const tDatos=datos.slice(Math.max(0,t*1),Math.max(0,t*1)+3);
+        const utilTrim=tDatos.reduce((a,d)=>a+d.util,0);
+        const isrTrim=Math.max(utilTrim*ISR,0);
+        return`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)">
+          <span style="font-size:13px">Trimestre ${t+1}</span>
+          <div style="text-align:right"><div class="td-mono text-amber">${fmt(isrTrim)}</div><div style="font-size:11px;color:var(--text3)">Base: ${fmt(utilTrim)}</div></div>
+        </div>`;
+      }).join('')}
+    </div>
   </div>`;
 }
 
-async function generarAsientosDesdeFacturas(){
-  if(!soloAdmin())return;
-  if(!confirm('\u00BFGenerar asientos autom\u00E1ticos desde las facturas del mes actual?'))return;
-  const facturas=await dbGetAll('facturas');
-  const asientos=await dbGetAll('asientos');
-  const mes=today().slice(0,7);
-  let count=0;
-  for(const f of facturas.filter(x=>x.fecha&&x.fecha.startsWith(mes))){
-    const ref='fac_'+f.id;
-    if(asientos.find(a=>a.referencia===ref))continue;
-    // Ingreso total a caja
-    await dbAdd('asientos',{noAsiento:genId('AS-'),fecha:f.fecha,referencia:ref,
-      descripcion:'Venta servicios \u2014 '+f.noFactura+' \u2014 '+f.clienteNombre,
-      cuentaDebe:'1101',debe:parseFloat((f.total||0).toFixed(2)),
-      cuentaHaber:'4101',haber:parseFloat((f.subtotal||0).toFixed(2)),createdAt:nowTs()});
-    // IVA por pagar
-    if((f.iva||0)>0){
-      await dbAdd('asientos',{noAsiento:genId('AS-'),fecha:f.fecha,referencia:ref+'_iva',
-        descripcion:'IVA generado \u2014 '+f.noFactura,
-        cuentaDebe:'4101',debe:parseFloat((f.iva||0).toFixed(2)),
-        cuentaHaber:'2102',haber:parseFloat((f.iva||0).toFixed(2)),createdAt:nowTs()});
-    }
-    count++;
+/* ---- M\u00D3DULOS FINANCIEROS RESTANTES ---- */
+
+async function registrarPlanillaMensual() {
+  var empleados = await dbGetAll('empleados');
+  var activos = empleados.filter(function(e){ return e.activo !== false; });
+  if (!activos.length) { toast('No hay empleados activos','amber'); return; }
+  var mes = today().slice(0,7);
+  var costos = await dbGetAll('costos');
+  var yaRegistrado = costos.some(function(c){ return c.categoria==='Planilla' && (c.fecha||'').startsWith(mes); });
+  if (yaRegistrado && !confirm('Ya existe planilla para este mes. ¿Registrar de nuevo?')) return;
+  var totalSueldos = 0, totalIGSS = 0;
+  for (var i=0; i<activos.length; i++) {
+    var e = activos[i];
+    var sal = e.salarioBase || 0;
+    var bonifDecr = 250;
+    var descIGSS = sal * 0.0483;
+    var neto = sal + bonifDecr + (e.bonificacionAdicional||0) - descIGSS - (e.descuentoAdicional||0);
+    totalSueldos += neto;
+    totalIGSS += sal * 0.1267;
   }
-  toast(count+' asientos generados');await navTo('contabilidad');
-}
-
-async function eliminarAsiento(id){
-  if(!soloAdmin())return;
-  if(!confirm('\u00BFEliminar este asiento?'))return;
-  await dbDelete('asientos',id);await navTo('contabilidad');
-}
-
-async function generarBalanceHTML(){return'';}// compatibilidad
-
-/* ================================================================
-   SUGERIDOR DE MANTENIMIENTO POR KM Y FABRICANTE
-   ================================================================ */
-async function _lRowGlobal(l, i) {
-  return '<div class="form-row" style="grid-template-columns:2fr 1fr 1fr 1fr auto;gap:6px;margin-bottom:6px" id="lf_r_'+i+'">'
-    +'<input placeholder="Descripcion" value="'+(l.desc||'')+'" id="lf_d_'+i+'" oninput="calcTotFac()">'
-    +'<input type="number" value="'+(l.qty||1)+'" id="lf_q_'+i+'" step="0.01" min="0" oninput="calcTotFac()">'
-    +'<input type="number" value="'+(l.unit||0)+'" id="lf_u_'+i+'" step="0.01" min="0" oninput="calcTotFac()">'
-    +'<input type="number" value="'+(l.desc_pct||0)+'" id="lf_p_'+i+'" min="0" max="100" oninput="calcTotFac()">'
-    +'<button class="btn btn-sm btn-danger btn-icon" onclick="document.getElementById(\'lf_r_'+i+'\').remove();calcTotFac()" style="margin-top:0">X</button>'
-    +'</div>';
-}
-
-function addLF() {
-  var list = document.getElementById('lf_list');
-  if (!list) return;
-  var i = list.children.length;
-  var fn = window._lRow || _lRowGlobal;
-  list.insertAdjacentHTML('beforeend', fn({desc:'',qty:1,unit:0,desc_pct:0}, i));
-  calcTotFac();
-}
-
-
-async function modalFactura(id, otData) {
-  var clientes = await dbGetAll('clientes');
-  var facturasCfg = await dbGet('config','facturas_cfg') || {};
-  var cfg = await dbGet('config','taller') || {};
-  var felCfg = await dbGet('config','fel') || {};
-  var f = id ? await dbGet('facturas', id) : {};
-  var od = otData || {};
-
-  // Calcular siguiente numero correlativo FEL
-  var todasFacs = await dbGetAll('facturas');
-  var prefijo = facturasCfg.serie || 'A';
-  var ultimoNum = todasFacs.reduce(function(max, fac) {
-    if (fac.serieNumero && fac.serie === prefijo) {
-      return Math.max(max, fac.serieNumero || 0);
-    }
-    return max;
-  }, 0);
-  var sigNumero = ultimoNum + 1;
-  var noFelSugerido = id ? (f.noFactura || '') : (prefijo + '-' + String(sigNumero).padStart(6, '0'));
-
-  // Lineas desde OT si viene de ahi
-  var lineasOT = [];
-  if (!id && od.manoObra) {
-    (od.manoObra||[]).forEach(function(m){ lineasOT.push({desc:'Mano de obra: '+m.concepto, qty:m.horas, unit:m.tarifa, desc_pct:m.descuento||0, tipo:'mo'}); });
-    (od.items||[]).forEach(function(i){ lineasOT.push({desc:i.nombre, qty:i.cantidad, unit:i.precio, desc_pct:i.descuento||0, tipo:'rep'}); });
-    (od.otrosCargos||[]).forEach(function(oc){ lineasOT.push({desc:oc.concepto, qty:1, unit:oc.monto, desc_pct:oc.descuento||0, tipo:'otro'}); });
+  var totalProvision = 0, totalIRTRA = 0, totalINTECAP = 0;
+  for (var j=0; j<activos.length; j++) {
+    var det = calcDetalleEmpleado(activos[j]);
+    totalProvision += det.provBono14 + det.provAguinal + det.provIndem + det.provVac;
+    totalIRTRA    += det.irtra;
+    totalINTECAP  += det.intecap;
   }
-  var lineasExist = f.lineas || lineasOT;
-  if (!lineasExist.length) lineasExist = [{desc:'', qty:1, unit:0, desc_pct:0}];
-
-  var cliOpts = '<option value="">Seleccionar cliente...</option>' +
-    clientes.map(function(c){
-      return '<option value="'+c.id+'|'+encodeURIComponent(c.nit||'CF')+'|'+encodeURIComponent(c.nombre)+'|'+encodeURIComponent(c.direccion||'')+'"'
-        +((f.clienteId||od.clienteId)===c.id?' selected':'')+'>'
-        +c.nombre+' - '+(c.nit||'CF')+'</option>';
-    }).join('');
-
-  function lRow(l, i) {
-    var tot = ((l.qty||1)*(l.unit||0)*(1-(l.desc_pct||0)/100)).toFixed(2);
-    return '<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 80px auto;gap:6px;margin-bottom:6px;align-items:center" id="lr'+i+'">'
-      +'<input placeholder="Descripcion" value="'+(l.desc||'')+'" id="ld'+i+'" oninput="calcTotFac();calcLFTotal('+i+')" style="font-size:13px">'
-      +'<input type="number" value="'+(l.qty||1)+'" id="lq'+i+'" step="0.01" min="0" oninput="calcTotFac();calcLFTotal('+i+')" style="font-size:13px">'
-      +'<input type="number" value="'+(l.unit||0)+'" id="lu'+i+'" step="0.01" min="0" oninput="calcTotFac();calcLFTotal('+i+')" style="font-size:13px">'
-      +'<input type="number" value="'+(l.desc_pct||0)+'" id="lp'+i+'" min="0" max="100" oninput="calcTotFac();calcLFTotal('+i+')" style="font-size:13px">'
-      +'<div id="lt'+i+'" style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--green);text-align:right;padding:7px 4px">Q '+tot+'</div>'
-      +'<button class="btn btn-sm btn-danger btn-icon" onclick="document.getElementById(\'lr'+i+'\').remove();calcTotFac()" style="margin-top:0">X</button>'
-      +'</div>';
-  }
-  window._lRow = lRow;
-
-  openModal('fac', id ? 'Editar Factura' : 'Nueva Factura FEL', 
-    // Cabecera FEL
-    '<div class="alert alert-blue" style="font-size:11px">'
-    +(felCfg.habilitado ? '<strong>FEL activo:</strong> '+felCfg.certificadora+' | Ambiente: '+felCfg.ambiente : '<strong>FEL no configurado.</strong> <a onclick="cerrarModal(\'fac\');navTo(\'fel\')" style="cursor:pointer;color:var(--accent)">Configurar FEL</a>')
-    +'</div>'
-    +'<div class="form-row form-row-3">'
-    +'<div class="form-group"><label>No. Factura / Serie FEL *</label>'
-    +'<input id="f_no" value="'+noFelSugerido+'" placeholder="A-000001">'
-    +'<div class="form-hint">Serie: '+prefijo+' | Correlativo: '+sigNumero+'</div></div>'
-    +'<div class="form-group"><label>Fecha *</label>'
-    +'<input id="f_fe" type="date" value="'+(f.fecha||today())+'"></div>'
-    +'<div class="form-group"><label>Forma de pago</label>'
-    +'<select id="f_pa">'
-    +'<option value="efectivo"'+((!f.formaPago||f.formaPago==='efectivo')?' selected':'')+'>Efectivo</option>'
-    +'<option value="transferencia"'+(f.formaPago==='transferencia'?' selected':'')+'>Transferencia</option>'
-    +'<option value="tarjeta"'+(f.formaPago==='tarjeta'?' selected':'')+'>Tarjeta</option>'
-    +'<option value="cheque"'+(f.formaPago==='cheque'?' selected':'')+'>Cheque</option>'
-    +'<option value="credito"'+(f.formaPago==='credito'?' selected':'')+'>Credito</option>'
-    +'</select></div></div>'
-    // Seccion cliente con validacion NIT
-    +'<div class="form-row form-row-2">'
-    +'<div class="form-group"><label>Cliente *</label>'
-    +'<select id="f_cl" onchange="onClienteFacChange()">'+cliOpts+'</select></div>'
-    +'<div class="form-group"><label>NIT del cliente *</label>'
-    +'<div style="display:flex;gap:6px">'
-    +'<input id="f_ni" value="'+(f.nit||od.nit||'CF')+'" placeholder="NIT o CF" oninput="validarNITFacInput()">'
-    +'<button class="btn btn-sm btn-secondary" onclick="validarNITFacInput()" style="white-space:nowrap">Validar</button>'
-    +'</div>'
-    +'<div id="nit_fac_status" style="margin-top:4px;font-size:11px"></div>'
-    +'</div></div>'
-    +'<div class="form-row form-row-2">'
-    +'<div class="form-group"><label>Nombre en factura</label>'
-    +'<input id="f_nombre_fac" value="'+(f.clienteNombreFac||f.clienteNombre||od.clienteNombre||'')+'" placeholder="Nombre como aparece en factura"></div>'
-    +'<div class="form-group"><label>Referencia / OT</label>'
-    +'<input id="f_re" value="'+(f.descripcion||od.noOT||od.descripcion||'')+'" placeholder="No. OT o referencia"></div>'
-    +'</div>'
-    // Lineas
-    +'<div class="divider"></div>'
-    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
-    +'<span class="card-title">Lineas de la factura</span>'
-    +'<button class="btn btn-sm btn-secondary" onclick="addLF()">+ Agregar linea</button>'
-    +'</div>'
-    +'<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 80px auto;gap:6px;margin-bottom:4px">'
-    +'<small class="text-muted">Descripcion</small>'
-    +'<small class="text-muted">Cant.</small>'
-    +'<small class="text-muted">Precio unit. Q</small>'
-    +'<small class="text-muted">Desc.%</small>'
-    +'<small class="text-muted" style="text-align:right">Total Q</small>'
-    +'<span></span></div>'
-    +'<div id="lf_list">'+lineasExist.map(function(l,i){return lRow(l,i);}).join('')+'</div>'
-    +'<div id="fac_tots" style="text-align:right;margin-top:12px"></div>'
-    +(id?'<div class="form-group mt-2"><label><input type="checkbox" id="f_pg"'+(f.pagada?' checked':'')+' style="width:auto;margin-right:6px"> Marcar como pagada</label></div>':''),
-    async function(){
-      // Validar NIT antes de guardar
-      var nit = $v('f_ni').trim() || 'CF';
-      var nitOk = validarNITCompleto ? validarNITCompleto(nit) : {valido:true};
-      if (!nitOk.valido) {
-        var cont = confirm('El NIT "'+nit+'" no paso la validacion SAT (Modulo 11). Guardar de todas formas?');
-        if (!cont) return;
-      }
-      var parts = ($v('f_cl')||'').split('|');
-      var cId = parseInt(parts[0]);
-      var cli = clientes.find(function(c){return c.id===cId;});
-      var lineas = getLF();
-      if (!lineas.length) { toast('Agrega al menos una linea','red'); return; }
-      var subB = lineas.reduce(function(a,l){return a+l.qty*l.unit;},0);
-      var descT = lineas.reduce(function(a,l){return a+l.qty*l.unit*(l.desc_pct||0)/100;},0);
-      var sub = parseFloat((subB-descT).toFixed(2));
-      var iva = parseFloat((sub*0.12).toFixed(2));
-      var tot = parseFloat((sub+iva).toFixed(2));
-      var obj = {
-        noFactura: $v('f_no').trim(),
-        serie: prefijo,
-        serieNumero: sigNumero,
-        fecha: $v('f_fe'),
-        formaPago: $v('f_pa'),
-        clienteId: cId,
-        clienteNombre: cli ? cli.nombre : '',
-        clienteNombreFac: $v('f_nombre_fac').trim() || (cli ? cli.nombre : ''),
-        clienteDireccion: cli ? (cli.direccion||'') : '',
-        nit: nit,
-        descripcion: $v('f_re').trim(),
-        lineas: lineas,
-        subtotalBruto: subB,
-        descuentoTotal: descT,
-        subtotal: sub,
-        iva: iva,
-        total: tot,
-        felHabilitado: felCfg.habilitado || false,
-        felCertificadora: felCfg.certificadora || '',
-        pagada: id ? $c('f_pg') : false,
-        updatedAt: nowTs()
-      };
-      if (!obj.noFactura) { toast('Numero de factura requerido','red'); return; }
-      if (id) { obj.id=id; await dbPut('facturas',obj); }
-      else { obj.createdAt=nowTs(); await dbAdd('facturas',obj); }
-      await logAuditoria(id?'EDITAR':'CREAR','facturas',(id?'Factura editada':'Factura emitida')+': '+(obj.noFactura||''),{total:obj.total});
-      cerrarModal('fac');
-      toast(id ? 'Factura actualizada' : 'Factura emitida');
-      await navTo('facturas');
-    }, true);
-  setTimeout(function(){
-    calcTotFac();
-    agregarBotonesInline([{selectId:'f_cl',tipo:'cliente'}]);
-    // Pre-validar NIT si ya hay uno
-    var nitEl = document.getElementById('f_ni');
-    if (nitEl && nitEl.value && nitEl.value !== 'CF') validarNITFacInput();
-  }, 150);
+  await dbAdd('costos',{fecha:today(),tipo:'Planilla mensual',
+    descripcion:'Sueldos netos — '+activos.length+' empleados — '+mes,
+    monto:parseFloat(totalSueldos.toFixed(2)),
+    categoria:'Planilla', pagado:true, createdAt:nowTs(), updatedAt:nowTs()});
+  await dbAdd('costos',{fecha:today(),tipo:'IGSS patronal',
+    descripcion:'Cuota patronal IGSS 12.67% — '+mes,
+    monto:parseFloat(totalIGSS.toFixed(2)),
+    categoria:'Planilla', pagado:false, createdAt:nowTs(), updatedAt:nowTs()});
+  await dbAdd('costos',{fecha:today(),tipo:'IRTRA + INTECAP',
+    descripcion:'IRTRA 1% + INTECAP 1% — '+mes,
+    monto:parseFloat((totalIRTRA+totalINTECAP).toFixed(2)),
+    categoria:'Planilla', pagado:false, createdAt:nowTs(), updatedAt:nowTs()});
+  await dbAdd('costos',{fecha:today(),tipo:'Provisiones laborales',
+    descripcion:'Prov. Bono14 + Aguinaldo + Indem + Vac — '+mes,
+    monto:parseFloat(totalProvision.toFixed(2)),
+    categoria:'Provisiones', pagado:false, createdAt:nowTs(), updatedAt:nowTs()});
+  var costoTotal = totalSueldos + totalIGSS + totalIRTRA + totalINTECAP + totalProvision;
+  await logAuditoria('PLANILLA','costos','Planilla completa Q'+costoTotal.toFixed(2),{mes:mes});
+  toast('Planilla registrada. Costo total empresa: Q ' + costoTotal.toFixed(2));
+  await navTo('costos');
 }
 
-function onClienteFacChange() {
-  var parts = ($v('f_cl')||'').split('|');
-  var nitEl = document.getElementById('f_ni');
-  var nomEl = document.getElementById('f_nombre_fac');
-  if (nitEl) { nitEl.value = decodeURIComponent(parts[1]||'CF'); validarNITFacInput(); }
-  if (nomEl) nomEl.value = decodeURIComponent(parts[2]||'');
-}
-
-function validarNITFacInput() {
-  var nit = $v('f_ni').trim();
-  var el = document.getElementById('nit_fac_status');
-  if (!el) return;
-  if (!nit || nit.toUpperCase()==='CF') {
-    el.innerHTML = '<span style="color:var(--text3)">Consumidor Final - siempre valido</span>';
-    el.style.background='';
-    return;
-  }
-  var r = validarNITCompleto ? validarNITCompleto(nit) : {valido:true,mensaje:'OK'};
-  if (r.valido) {
-    el.innerHTML = '<span style="color:var(--green)">&#10003; NIT valido (Modulo 11 SAT)</span>';
-  } else {
-    el.innerHTML = '<span style="color:var(--red)">&#10005; ' + (r.error||'NIT invalido') + '</span>';
-  }
-}
-
-// ================================================================
-// 2. WHATSAPP: LOGS CON FILTROS Y ACCIONES
-// ================================================================
-
-async

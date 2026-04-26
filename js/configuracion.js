@@ -1,511 +1,5 @@
-/* TallerPro GT — js/configuracion.js
-   Módulo independiente — cada archivo tiene funciones específicas
-   Para editar: modificar solo este archivo y recargar
-*/
+/* TallerPro GT — configuracion.js */
 
-function renderUsuarios(content,actions){
-  if(!soloAdmin()){content.innerHTML='<div class="alert alert-red">Acceso solo para administradores</div>';return;}
-  const usuarios=await dbGetAll('usuarios');
-  actions.innerHTML=`<button class="btn btn-primary" onclick="modalUsuario()">+ Nuevo usuario</button>`;
-  content.innerHTML=`
-  <div class="section-title">Control de Usuarios y Accesos</div>
-  <div class="section-sub">Gesti\u00F3n de perfiles y permisos del sistema</div>
-
-  <div class="stat-grid" style="grid-template-columns:repeat(3,1fr)">
-    ${Object.entries(PERFILES).map(([k,v])=>`<div class="stat-card">
-      <div class="stat-label">${v.label}</div>
-      <div class="stat-value" style="color:var(--${v.color==='amber'?'accent':v.color})">${usuarios.filter(u=>u.perfil===k&&u.activo).length}</div>
-      <div class="stat-sub">usuarios activos</div>
-    </div>`).join('')}
-  </div>
-
-  <div class="card" style="padding:10px">
-    <div class="table-wrap"><table>
-      <thead><tr><th>Usuario</th><th>Nombre</th><th>Perfil</th><th>Email</th><th>\u00DAltimo acceso</th><th>Estado</th><th>Acciones</th></tr></thead>
-      <tbody>
-        ${usuarios.map(u=>`<tr>
-          <td class="td-mono" style="font-weight:600">${u.username}</td>
-          <td>${u.nombre}</td>
-          <td><span class="badge badge-${u.perfil==='admin'?'red':u.perfil==='supervisor'?'amber':'blue'}">${PERFILES[u.perfil]?.label||u.perfil}</span></td>
-          <td class="text-muted">${u.email||'\u2014'}</td>
-          <td style="font-size:11px;color:var(--text3)">${fechaLegible(u.ultimoAcceso)}</td>
-          <td><span class="badge badge-${u.activo?'green':'gray'}">${u.activo?'Activo':'Inactivo'}</span></td>
-          <td><div class="flex gap-1">
-            <button class="btn btn-sm btn-secondary" onclick="modalUsuario(${u.id})">\u270F</button>
-            <button class="btn btn-sm btn-secondary" onclick="resetPassword(${u.id})">\u1F511</button>
-            ${u.username!=='admin'?`<button class="btn btn-sm btn-danger" onclick="toggleUsuario(${u.id},${u.activo})">\u23F8</button>`:''}
-          </div></td>
-        </tr>`).join('')||'<tr><td colspan="7" class="text-center text-muted" style="padding:20px">Sin usuarios</td></tr>'}
-      </tbody>
-    </table></div>
-  </div>
-
-  <div class="card">
-    <div class="card-title" style="margin-bottom:12px">Permisos por perfil</div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>M\u00F3dulo</th><th>Administrador</th><th>Supervisor</th><th>Operador</th></tr></thead>
-      <tbody>
-        ${[
-          ['Dashboard general','\u2705','\u2705','\u2705'],
-          ['Recepciones y OT','\u2705','\u2705','\u2705'],
-          ['Inventario','\u2705','\u2705','Solo lectura'],
-          ['Clientes y veh\u00EDculos','\u2705','\u2705','\u2705'],
-          ['Facturaci\u00F3n','\u2705','\u2705','\u274C'],
-          ['Empleados y n\u00F3mina','\u2705','\u274C','\u274C'],
-          ['Costos y finanzas','\u2705','\u2705','\u274C'],
-          ['Rentabilidad e impuestos','\u2705','\u274C','\u274C'],
-          ['KPI y bonificaciones','\u2705','\u274C','\u274C'],
-          ['Usuarios y configuraci\u00F3n','\u2705','\u274C','\u274C'],
-          ['Eliminar registros','\u2705','\u274C','\u274C'],
-        ].map(r=>`<tr>${r.map((c,i)=>`<td ${i>0?'style="text-align:center"':''}>${c}</td>`).join('')}</tr>`).join('')}
-      </tbody>
-    </table></div>
-    </div>
-  </div>
-  `;
-}
-
-async function modalUsuario(id=null){
-  if(!soloAdmin()){toast('Solo administradores','red');return;}
-  const u=id?await dbGet('usuarios',id):{};
-  openModal('modalUsuario',id?'Editar Usuario':'Nuevo Usuario',`
-    <div class="form-row form-row-2">
-      <div class="form-group"><label>Nombre completo *</label><input id="u_nom" value="${u.nombre||''}" placeholder="Nombre del usuario"></div>
-      <div class="form-group"><label>Usuario (login) *</label><input id="u_usr" value="${u.username||''}" placeholder="sin espacios" ${id&&u.username==='admin'?'readonly':''}></div>
-    </div>
-    <div class="form-row form-row-2">
-      <div class="form-group"><label>Email</label><input id="u_email" type="email" value="${u.email||''}" placeholder="correo@taller.com"></div>
-      <div class="form-group"><label>Tel\u00E9fono</label><input id="u_tel" value="${u.telefono||''}" placeholder="+502 5555-0000" onblur="onTelBlur(this)"></div>
-    </div>
-    <div class="form-row form-row-2">
-      <div class="form-group"><label>Perfil *</label>
-        <select id="u_perfil" ${id&&u.username==='admin'?'disabled':''}>
-          <option value="operador" ${u.perfil==='operador'?'selected':''}>Operador \u2014 Ingreso de datos b\u00E1sico</option>
-          <option value="supervisor" ${u.perfil==='supervisor'?'selected':''}>Supervisor \u2014 Gesti\u00F3n intermedia</option>
-          <option value="admin" ${u.perfil==='admin'?'selected':''}>Administrador \u2014 Acceso total</option>
-        </select>
-      </div>
-      <div class="form-group"><label>${id?'Nueva contrase\u00F1a (dejar vac\u00EDo = sin cambio)':'Contrase\u00F1a *'}</label>
-        <input id="u_pass" type="password" placeholder="${id?'Nueva contrase\u00F1a':'Contrase\u00F1a inicial'}">
-      </div>
-    </div>
-    ${id?`<div class="form-group"><label><input type="checkbox" id="u_activo" ${u.activo!==false?'checked':''} style="width:auto;margin-right:6px">Usuario activo</label></div>`:''}
-    <div class="form-group"><label>Cargo / Puesto</label><input id="u_cargo" value="${u.cargo||''}" placeholder="Mec\u00E1nico, Contador, Gerente..."></div>
-  `,async()=>{
-    const nombre=document.getElementById('u_nom').value.trim();
-    const username=document.getElementById('u_usr').value.trim().toLowerCase().replace(/\s/g,'');
-    const pass=document.getElementById('u_pass').value;
-    if(!nombre||!username){toast('Nombre y usuario requeridos','red');return;}
-    if(!id&&!pass){toast('Contrase\u00F1a requerida para nuevo usuario','red');return;}
-    const obj={
-      nombre,username,
-      perfil:document.getElementById('u_perfil').value,
-      email:document.getElementById('u_email').value,
-      telefono:document.getElementById('u_tel').value,
-      cargo:document.getElementById('u_cargo').value,
-      activo:id?(document.getElementById('u_activo')?.checked!==false):true,
-      updatedAt:nowTs()
-    };
-    if(pass)obj.passwordHash=hashSimple(pass);
-    if(id){obj.id=id;if(!obj.passwordHash)delete obj.passwordHash;
-      const ex=await dbGet('usuarios',id);obj.passwordHash=obj.passwordHash||ex.passwordHash;
-      await dbPut('usuarios',obj);
-    }else{obj.createdAt=nowTs();await dbAdd('usuarios',obj);}
-    closeModal('modalUsuario');toast(id?'Usuario actualizado':'Usuario creado');
-    await navTo('usuarios');
-  });
-}
-
-async function resetPassword(id){
-  if(!soloAdmin())return;
-  const nueva=prompt('Nueva contrase\u00F1a para este usuario:');
-  if(!nueva)return;
-  const u=await dbGet('usuarios',id);
-  u.passwordHash=hashSimple(nueva);u.updatedAt=nowTs();
-  await dbPut('usuarios',u);toast('Contrase\u00F1a restablecida');
-}
-
-async function toggleUsuario(id,activo){
-  if(!soloAdmin())return;
-  const u=await dbGet('usuarios',id);u.activo=!activo;
-  await dbPut('usuarios',u);toast(`Usuario ${u.activo?'activado':'desactivado'}`);
-  await navTo('usuarios');
-}
-
-/* ---- EMPLEADOS ---- */
-async function renderDashboard(content,actions){
-  const [facturas,ordenes,repuestos,insumos,clientes,alertas,costos,empleados]=await Promise.all([
-    dbGetAll('facturas'),dbGetAll('ordenes'),dbGetAll('repuestos'),dbGetAll('insumos'),
-    dbGetAll('clientes'),dbGetAll('alertas'),dbGetAll('costos'),dbGetAll('empleados')
-  ]);
-  const mes=today().slice(0,7);
-  const fMes=facturas.filter(f=>f.fecha?.startsWith(mes));
-  const ingBrutos=fMes.reduce((a,f)=>a+(f.total||0),0);
-  const ivaCob=fMes.reduce((a,f)=>a+(f.iva||0),0);
-  const ingNetos=fMes.reduce((a,f)=>a+(f.subtotal||0),0);
-  const costMes=costos.filter(c=>c.fecha?.startsWith(mes)).reduce((a,c)=>a+(c.monto||0),0);
-  const utilidad=ingNetos-costMes;
-  const pendAlerts=alertas.filter(a=>!a.vista).length;
-  const stockBajo=[...repuestos,...insumos].filter(i=>(i.stock||0)<=(i.stockMin||5)).length;
-  const otsAbiertas=ordenes.filter(o=>o.estado!=='completada'&&o.estado!=='entregada').length;
-  const margen=ingNetos>0?(utilidad/ingNetos*100).toFixed(1):0;
-
-  content.innerHTML=`
-  <div class="section-title">Dashboard General</div>
-  <div class="section-sub">${fechaLegible(today())} \u2014 Usuario: <strong>${sesionActual?.nombre}</strong> <span class="badge badge-${sesionActual?.perfil==='admin'?'red':sesionActual?.perfil==='supervisor'?'amber':'blue'}">${PERFILES[sesionActual?.perfil]?.label||''}</span></div>
-  <div class="stat-grid">
-    <div class="stat-card stat-green"><div class="stat-label">Facturaci\u00F3n bruta mes</div><div class="stat-value">${fmt(ingBrutos)}</div><div class="stat-sub">${fMes.length} facturas</div></div>
-    <div class="stat-card stat-blue"><div class="stat-label">Utilidad neta mes</div><div class="stat-value">${fmt(utilidad)}</div><div class="stat-sub">Margen: ${margen}%</div></div>
-    <div class="stat-card stat-amber"><div class="stat-label">IVA generado mes</div><div class="stat-value">${fmt(ivaCob)}</div><div class="stat-sub">Por declarar a SAT</div></div>
-    <div class="stat-card ${utilidad>=0?'stat-green':'stat-red'}"><div class="stat-label">Resultado mes</div><div class="stat-value" style="font-size:18px">${utilidad>=0?'\u2713 GANANCIA':'\u2717 P\u00C9RDIDA'}</div></div>
-  </div>
-  <div class="stat-grid">
-    <div class="stat-card ${otsAbiertas>0?'stat-amber':''}"><div class="stat-label">OT abiertas</div><div class="stat-value">${otsAbiertas}</div></div>
-    <div class="stat-card ${pendAlerts>0?'stat-red':''}"><div class="stat-label">Alertas</div><div class="stat-value">${pendAlerts}</div></div>
-    <div class="stat-card ${stockBajo>0?'stat-red':''}"><div class="stat-label">Stock bajo</div><div class="stat-value">${stockBajo} items</div></div>
-    <div class="stat-card"><div class="stat-label">Clientes</div><div class="stat-value" style="color:var(--purple)">${clientes.length}</div></div>
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-    <div class="card">
-      <div class="card-header"><span class="card-title">\u00DAltimas \u00F3rdenes</span><button class="btn btn-sm btn-secondary" onclick="navTo('ordenes')">Ver todas</button></div>
-      ${ordenes.slice(-6).reverse().map(o=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)">
-        <div><div style="font-size:13px;font-weight:500">${o.noOT||'OT'} \u2014 ${o.placa||''}</div><div style="font-size:11px;color:var(--text2)">${o.tecnico||'\u2014'} | ${fechaLegible(o.fecha)}</div></div>
-        <span class="badge badge-${o.estado==='entregada'?'green':o.estado==='completada'?'blue':o.estado==='en_proceso'?'amber':'gray'}">${o.estado||'nuevo'}</span>
-      </div>`).join('')||'<div class="text-muted text-center" style="padding:12px;font-size:13px">Sin \u00F3rdenes</div>'}
-    </div>
-    <div class="card">
-      <div class="card-header"><span class="card-title">Stock cr\u00EDtico</span></div>
-      ${[...repuestos,...insumos].filter(i=>(i.stock||0)<=(i.stockMin||5)).slice(0,6).map(i=>`
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)">
-          <div style="font-size:13px">${i.nombre}</div>
-          <span class="badge badge-red">${i.stock||0}/${i.stockMin||5}</span>
-        </div>`).join('')||'<div class="text-muted text-center" style="padding:12px;font-size:13px">Stock OK \u2713</div>'}
-    </div>
-  </div>`;
-}
-
-/* ---- DASHBOARD KPI MEC\u00C1NICOS ---- */
-async function renderDashboard_mecanicos(content,actions){
-  if(!soloAdmin()){content.innerHTML='<div class="alert alert-red">Solo administradores</div>';return;}
-  const empleados=await dbGetAll('empleados');
-  const kpiData=await dbGetAll('kpi');
-  const ordenes=await dbGetAll('ordenes');
-  const mes=today().slice(0,7);
-  const mec\u00E1nicos=empleados.filter(e=>['Mec\u00E1nico','Mec\u00E1nico senior','Electricista','Auxiliar'].includes(e.cargo)&&e.activo!==false);
-
-  const metricas=mec\u00E1nicos.map(e=>{
-    const kpiMes=kpiData.filter(k=>k.empleadoId===e.id&&k.mes===mes);
-    const otsMes=ordenes.filter(o=>o.tecnico===e.nombre&&o.fecha?.startsWith(mes));
-    const totalFact=kpiMes.reduce((a,k)=>a+(k.totalFacturado||0),0);
-    const otsEntregadas=otsMes.filter(o=>o.estado==='entregada').length;
-    const otsTotales=otsMes.length;
-    const tasaEfect=otsTotales>0?(otsEntregadas/otsTotales*100).toFixed(0):0;
-    const horasTrab=otsMes.reduce((a,o)=>(o.manoObra||[]).reduce((b,m)=>b+(m.horas||0),0)+a,0);
-    const salario=e.salarioBase||0;
-    const metaFact=salario*3;// Meta: 3x el salario
-    const pctMeta=metaFact>0?(totalFact/metaFact*100).toFixed(0):0;
-    const bonus=totalFact>metaFact?(totalFact-metaFact)*0.05:0;// 5% sobre excedente
-    return{...e,kpiMes,otsMes,totalFact,otsEntregadas,otsTotales,tasaEfect,horasTrab,metaFact,pctMeta,bonus};
-  });
-
-  content.innerHTML=`
-  <div class="section-title">Dashboard KPI \u2014 Mec\u00E1nicos</div>
-  <div class="section-sub">Mes: ${mes} \u2014 Evaluaci\u00F3n de desempe\u00F1o y bonificaciones</div>
-  <div class="stat-grid">
-    <div class="stat-card"><div class="stat-label">Mec\u00E1nicos activos</div><div class="stat-value" style="color:var(--purple)">${mec\u00E1nicos.length}</div></div>
-    <div class="stat-card stat-green"><div class="stat-label">Total facturado (equipo)</div><div class="stat-value">${fmt(metricas.reduce((a,m)=>a+m.totalFact,0))}</div></div>
-    <div class="stat-card stat-amber"><div class="stat-label">Bonificaciones a pagar</div><div class="stat-value">${fmt(metricas.reduce((a,m)=>a+m.bonus,0))}</div></div>
-    <div class="stat-card"><div class="stat-label">OTs completadas</div><div class="stat-value">${metricas.reduce((a,m)=>a+m.otsEntregadas,0)}</div></div>
-  </div>
-
-  ${metricas.map(m=>`
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
-      <div>
-        <div style="font-size:15px;font-weight:700">${m.nombre}</div>
-        <div style="font-size:12px;color:var(--text2)">${m.cargo} \u2014 Salario: ${fmt(m.salarioBase)}/mes</div>
-      </div>
-      ${m.bonus>0?`<div style="text-align:right"><div style="font-size:11px;color:var(--text3)">Bono desempe\u00F1o</div><div style="font-size:18px;font-weight:700;color:var(--green)">${fmt(m.bonus)}</div></div>`:'<span class="badge badge-gray">Sin bono este mes</span>'}
-    </div>
-    <div class="stat-grid" style="grid-template-columns:repeat(4,1fr)">
-      <div class="stat-card"><div class="stat-label">Facturado</div><div class="stat-value" style="font-size:16px;color:var(--green)">${fmt(m.totalFact)}</div><div class="stat-sub">Meta: ${fmt(m.metaFact)}</div></div>
-      <div class="stat-card"><div class="stat-label">OTs totales</div><div class="stat-value" style="font-size:16px">${m.otsTotales}</div><div class="stat-sub">${m.otsEntregadas} entregadas</div></div>
-      <div class="stat-card"><div class="stat-label">Tasa efectividad</div><div class="stat-value" style="font-size:16px;color:var(--${parseInt(m.tasaEfect)>=80?'green':parseInt(m.tasaEfect)>=60?'accent':'red'})">${m.tasaEfect}%</div></div>
-      <div class="stat-card"><div class="stat-label">Horas trabajadas</div><div class="stat-value" style="font-size:16px">${m.horasTrab.toFixed(1)}</div><div class="stat-sub">hrs en OTs</div></div>
-    </div>
-    <div style="margin-top:10px">
-      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>Progreso meta de facturaci\u00F3n</span><span class="td-mono">${m.pctMeta}%</span></div>
-      <div class="progress-bar"><div class="progress-fill" style="width:${Math.min(parseInt(m.pctMeta),100)}%;background:var(--${parseInt(m.pctMeta)>=100?'green':parseInt(m.pctMeta)>=70?'accent':'red'})"></div></div>
-    </div>
-    ${m.otsMes.slice(-3).length?`<div style="margin-top:10px;font-size:12px;color:var(--text2)">\u00DAltimas OT: ${m.otsMes.slice(-3).map(o=>`<span class="badge badge-gray">${o.noOT}</span>`).join(' ')}</div>`:''}
-  </div>`).join('')||'<div class="card text-center text-muted">No hay mec\u00E1nicos registrados</div>'}
-
-  <div class="card">
-    <div class="card-title" style="margin-bottom:10px">Criterios de bonificaci\u00F3n</div>
-    <div style="font-size:13px;color:var(--text2);line-height:2">
-      \u2022 Meta mensual por t\u00E9cnico: <strong>3x el salario base</strong><br>
-      \u2022 Bono por excedente: <strong>5% sobre la facturaci\u00F3n que supere la meta</strong><br>
-      \u2022 Efectividad m\u00EDnima requerida: <strong>80% de OTs entregadas</strong><br>
-      \u2022 Las bonificaciones se incluyen autom\u00E1ticamente en la n\u00F3mina del mes
-    </div>
-  </div>`;
-}
-
-/* ---- DASHBOARD FINANCIERO ---- */
-async function renderDashboard_financiero(content,actions){
-  if(!soloAdmin()){content.innerHTML='<div class="alert alert-red">Solo administradores</div>';return;}
-  const [facturas,costos,activos,empleados,nomina]=await Promise.all([
-    dbGetAll('facturas'),dbGetAll('costos'),dbGetAll('activos'),dbGetAll('empleados'),dbGetAll('nomina')
-  ]);
-  const meses=[];
-  for(let i=5;i>=0;i--){const d=new Date();d.setMonth(d.getMonth()-i);meses.push(d.toISOString().slice(0,7));}
-  const depMen=activos.reduce((a,ac)=>a+(ac.valorOriginal-(ac.valorResidual||0))/(ac.vidaUtil||5)/12,0);
-  const nominaMen=nomina.filter(n=>n.mes===today().slice(0,7)).reduce((a,n)=>a+n.netoPagar,0);
-
-  const datos=meses.map(mes=>{
-    const ing=facturas.filter(f=>f.fecha?.startsWith(mes)).reduce((a,f)=>a+(f.subtotal||0),0);
-    const ivaCob=facturas.filter(f=>f.fecha?.startsWith(mes)).reduce((a,f)=>a+(f.iva||0),0);
-    const costOp=costos.filter(c=>c.fecha?.startsWith(mes)).reduce((a,c)=>a+(c.monto||0),0);
-    const nomM=nomina.filter(n=>n.mes===mes).reduce((a,n)=>a+(n.netoPagar||0),0);
-    const util=ing-costOp-nomM-depMen;
-    const isr=Math.max(util*ISR,0);
-    return{mes,ing,ivaCob,costOp,nomM,depMen,util,isr,utilNeta:util-isr};
-  });
-
-  const curr=datos[datos.length-1];
-  const acumulado=datos.reduce((a,d)=>({ing:a.ing+d.ing,costOp:a.costOp+d.costOp,util:a.util+d.util,utilNeta:a.utilNeta+d.utilNeta}),{ing:0,costOp:0,util:0,utilNeta:0});
-
-  content.innerHTML=`
-  <div class="section-title">Dashboard Financiero</div>
-  <div class="section-sub">Estado financiero integral \u2014 \u00FAltimos 6 meses</div>
-
-  <div class="stat-grid">
-    <div class="stat-card stat-green"><div class="stat-label">Ingresos netos mes</div><div class="stat-value">${fmt(curr.ing)}</div></div>
-    <div class="stat-card stat-red"><div class="stat-label">Costos operativos</div><div class="stat-value">${fmt(curr.costOp+curr.nomM+curr.depMen)}</div><div class="stat-sub">Op + N\u00F3mina + Dep.</div></div>
-    <div class="stat-card ${curr.util>=0?'stat-green':'stat-red'}"><div class="stat-label">Utilidad antes ISR</div><div class="stat-value">${fmt(curr.util)}</div></div>
-    <div class="stat-card stat-amber"><div class="stat-label">ISR estimado mes</div><div class="stat-value">${fmt(curr.isr)}</div><div class="stat-sub">25% s/utilidad</div></div>
-  </div>
-
-  <div class="card">
-    <div class="card-title" style="margin-bottom:12px">Estado de Resultados \u2014 6 meses</div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>Mes</th><th class="td-right">Ingresos netos</th><th class="td-right">Costos op.</th><th class="td-right">N\u00F3mina</th><th class="td-right">Depreciaci\u00F3n</th><th class="td-right">Util. bruta</th><th class="td-right">ISR 25%</th><th class="td-right">Util. neta</th><th class="td-right">Margen</th></tr></thead>
-      <tbody>
-        ${datos.map(d=>`<tr>
-          <td class="td-mono">${d.mes}</td>
-          <td class="td-mono td-right text-green">${fmt(d.ing)}</td>
-          <td class="td-mono td-right text-red">${fmt(d.costOp)}</td>
-          <td class="td-mono td-right text-red">${fmt(d.nomM)}</td>
-          <td class="td-mono td-right text-amber">${fmt(d.depMen)}</td>
-          <td class="td-mono td-right">${fmt(d.util)}</td>
-          <td class="td-mono td-right">${fmt(d.isr)}</td>
-          <td class="td-mono td-right" style="font-weight:700;color:var(--${d.utilNeta>=0?'green':'red'})">${fmt(d.utilNeta)}</td>
-          <td class="td-mono td-right">${d.ing>0?((d.utilNeta/d.ing)*100).toFixed(1):0}%</td>
-        </tr>`).join('')}
-        <tr style="background:var(--bg3);font-weight:700">
-          <td>ACUMULADO</td>
-          <td class="td-mono td-right text-green">${fmt(acumulado.ing)}</td>
-          <td class="td-mono td-right" colspan="3"></td>
-          <td class="td-mono td-right">${fmt(acumulado.util)}</td>
-          <td class="td-mono td-right"></td>
-          <td class="td-mono td-right" style="color:var(--${acumulado.utilNeta>=0?'green':'red'})">${fmt(acumulado.utilNeta)}</td>
-          <td class="td-mono td-right">${acumulado.ing>0?((acumulado.utilNeta/acumulado.ing)*100).toFixed(1):0}%</td>
-        </tr>
-      </tbody>
-    </table></div>
-  </div>
-
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-    <div class="card">
-      <div class="card-title" style="margin-bottom:12px">Estructura de costos (mes actual)</div>
-      ${[['Costos operativos',curr.costOp],['N\u00F3mina',curr.nomM],['Depreciaci\u00F3n activos',curr.depMen],['ISR estimado',curr.isr]].map(([k,v])=>`
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
-          <span>${k}</span><span class="td-mono text-red">${fmt(v)}</span>
-        </div>`).join('')}
-      <div style="display:flex;justify-content:space-between;padding:8px 0;font-weight:700;font-size:14px">
-        <span>Total costos:</span><span class="td-mono text-red">${fmt(curr.costOp+curr.nomM+curr.depMen+curr.isr)}</span>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-title" style="margin-bottom:12px">ISR Trimestral proyectado</div>
-      ${[0,1,2,3].map(t=>{
-        const tDatos=datos.slice(Math.max(0,t*1),Math.max(0,t*1)+3);
-        const utilTrim=tDatos.reduce((a,d)=>a+d.util,0);
-        const isrTrim=Math.max(utilTrim*ISR,0);
-        return`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)">
-          <span style="font-size:13px">Trimestre ${t+1}</span>
-          <div style="text-align:right"><div class="td-mono text-amber">${fmt(isrTrim)}</div><div style="font-size:11px;color:var(--text3)">Base: ${fmt(utilTrim)}</div></div>
-        </div>`;
-      }).join('')}
-    </div>
-  </div>`;
-}
-
-/* ---- M\u00D3DULOS FINANCIEROS RESTANTES ---- */
-
-async function renderImportExport(content, actions) {
-  if (!soloAdmin()) { content.innerHTML='<div class="alert alert-red">Solo administradores</div>'; return; }
-  actions.innerHTML = '';
-  content.innerHTML = '<div class="section-title">Importar / Exportar Datos</div>'
-    + '<div class="section-sub">Migracion desde otras plataformas | Formato CSV compatible con Excel</div>'
-    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">'
-
-    // EXPORTAR
-    + '<div class="card"><div class="card-title" style="margin-bottom:12px">Exportar datos</div>'
-    + '<div style="display:grid;gap:8px">'
-    + ['empleados','clientes','vehiculos','repuestos','facturas','ordenes','costos','proveedores','nomina'].map(function(store){
-      var labels = {empleados:'Empleados',clientes:'Clientes',vehiculos:'Vehiculos',repuestos:'Repuestos',
-        facturas:'Facturas',ordenes:'Ordenes de trabajo',costos:'Costos operativos',proveedores:'Proveedores',nomina:'Nomina'};
-      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px;background:var(--bg3);border-radius:6px">'
-        + '<span style="font-size:13px">' + (labels[store]||store) + '</span>'
-        + '<div class="flex gap-1">'
-        + '<button class="btn btn-sm btn-secondary" onclick="exportarCSV(\''+store+'\')">CSV</button>'
-        + '<button class="btn btn-sm btn-green" onclick="exportarExcel(\''+store+'\')">Excel</button>'
-        + '</div></div>';
-    }).join('')
-    + '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px;background:var(--bg3);border-radius:6px">'
-    + '<span style="font-size:13px;font-weight:600">TODO (backup completo)</span>'
-    + '<button class="btn btn-sm btn-primary" onclick="exportarBackup()">JSON completo</button></div>'
-    + '</div></div>'
-
-    // IMPORTAR
-    + '<div class="card"><div class="card-title" style="margin-bottom:12px">Importar desde CSV</div>'
-    + '<div class="alert alert-amber" style="font-size:11px;margin-bottom:12px">Los datos importados se AGREGAN a los existentes (no reemplazan). Usa el mismo formato que el exportado.</div>'
-    + '<div style="display:grid;gap:8px">'
-    + ['empleados','clientes','vehiculos','repuestos','costos','proveedores'].map(function(store){
-      var labels = {empleados:'Empleados',clientes:'Clientes',vehiculos:'Vehiculos',repuestos:'Repuestos',costos:'Costos operativos',proveedores:'Proveedores'};
-      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px;background:var(--bg3);border-radius:6px">'
-        + '<span style="font-size:13px">' + (labels[store]||store) + '</span>'
-        + '<div class="flex gap-1">'
-        + '<button class="btn btn-sm btn-secondary" onclick="descargarPlantillaCSV(\''+store+'\')">Plantilla</button>'
-        + '<button class="btn btn-sm btn-blue" onclick="importarCSV(\''+store+'\')">Importar CSV</button>'
-        + '</div></div>';
-    }).join('')
-    + '</div>'
-    + '<div class="divider"></div>'
-    + '<div style="font-size:12px;color:var(--text2)">'
-    + '<strong>Pasos para migrar desde otra plataforma:</strong><br>'
-    + '1. Descarga la plantilla CSV del modulo a importar<br>'
-    + '2. Rellena la plantilla con tus datos (respeta el formato de columnas)<br>'
-    + '3. Guarda como CSV (UTF-8) desde Excel<br>'
-    + '4. Usa el boton "Importar CSV" para cargar los datos<br>'
-    + '5. Verifica los datos importados en el modulo correspondiente'
-    + '</div></div>'
-    + '</div>';
-}
-
-// Exportar store a CSV
-async function exportarCSV(storeName) {
-  var data = await dbGetAll(storeName);
-  if (!data.length) { toast('Sin datos para exportar','amber'); return; }
-  var keys = Object.keys(data[0]).filter(function(k){ return k !== 'passwordHash'; });
-  var csv = keys.join(',') + '\n';
-  data.forEach(function(row) {
-    csv += keys.map(function(k){
-      var v = row[k];
-      if (v === null || v === undefined) return '';
-      var s = String(v).replace(/"/g, '""');
-      return s.includes(',') || s.includes('\n') || s.includes('"') ? '"'+s+'"' : s;
-    }).join(',') + '\n';
-  });
-  var blob = new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8'});
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement('a'); a.href=url; a.download=storeName+'_'+today()+'.csv'; a.click();
-  toast('CSV exportado: ' + storeName);
-}
-
-// Exportar a Excel (HTML table que Excel abre)
-async function exportarExcel(storeName) {
-  var data = await dbGetAll(storeName);
-  if (!data.length) { toast('Sin datos para exportar','amber'); return; }
-  var keys = Object.keys(data[0]).filter(function(k){ return k !== 'passwordHash'; });
-  var html = '<table border="1"><thead><tr>' + keys.map(function(k){return '<th>'+k+'</th>';}).join('') + '</tr></thead><tbody>';
-  data.forEach(function(row){
-    html += '<tr>' + keys.map(function(k){ return '<td>'+(row[k]!=null?String(row[k]):'')+'</td>'; }).join('') + '</tr>';
-  });
-  html += '</tbody></table>';
-  var blob = new Blob(['\ufeff'+html], {type:'application/vnd.ms-excel;charset=utf-8'});
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement('a'); a.href=url; a.download=storeName+'_'+today()+'.xls'; a.click();
-  toast('Excel exportado: ' + storeName);
-}
-
-// Descargar plantilla CSV vacia con encabezados
-function descargarPlantillaCSV(storeName) {
-  var plantillas = {
-    empleados:'nombre,dpi,cargo,tipoContrato,fechaIngreso,circunscripcion,salarioBase,telefono,email,noIGSS,cuentaBanco,bancoCuenta,tipoCuentaBanco,nombreCuentaBanco,bonificacionAdicional,descuentoAdicional,activo',
-    clientes:'nombre,nit,empresa,tipo,telefono,whatsapp,email,direccion,notas',
-    vehiculos:'clienteNombre,placa,tipoVehiculo,marca,modelo,anio,color,cilindros,cilindraje,combustibleTipo,km,vin,tipoServicio,proximoServicio,kmProximo,observaciones',
-    repuestos:'codigo,nombre,categoria,stock,stockMin,unidad,costo,precio,proveedor,fechaCaducidad,descripcion',
-    costos:'fecha,categoria,descripcion,monto,proveedor,recurrente',
-    proveedores:'empresa,nit,categoria,contacto,telefono,email,sitioWeb,direccion,plazoCredito,calificacion,notas'
-  };
-  var csv = (plantillas[storeName]||'id,nombre') + '\n';
-  var blob = new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8'});
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement('a'); a.href=url; a.download='plantilla_'+storeName+'.csv'; a.click();
-  toast('Plantilla descargada: ' + storeName);
-}
-
-// Importar CSV al store
-function importarCSV(storeName) {
-  var input = document.createElement('input');
-  input.type = 'file'; input.accept = '.csv';
-  input.onchange = async function(e) {
-    var file = e.target.files[0];
-    if (!file) return;
-    var text = await file.text();
-    // Detectar BOM
-    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-    var lineas = text.split('\n').filter(function(l){return l.trim();});
-    if (lineas.length < 2) { toast('Archivo vacio o sin datos','red'); return; }
-    var keys = lineas[0].split(',').map(function(k){return k.trim().replace(/^"|"$/g,'');});
-    var rows = [];
-    for (var i=1; i<lineas.length; i++) {
-      var vals = parseCSVLine(lineas[i]);
-      if (vals.length < 2) continue;
-      var obj = {createdAt:nowTs()};
-      keys.forEach(function(k,idx){ if(k && k!=='id') obj[k] = vals[idx]||''; });
-      // Convertir tipos
-      if (obj.salarioBase) obj.salarioBase = parseFloat(obj.salarioBase)||0;
-      if (obj.monto) obj.monto = parseFloat(obj.monto)||0;
-      if (obj.stock) obj.stock = parseInt(obj.stock)||0;
-      if (obj.costo) obj.costo = parseFloat(obj.costo)||0;
-      if (obj.precio) obj.precio = parseFloat(obj.precio)||0;
-      if (obj.activo !== undefined) obj.activo = obj.activo !== 'false' && obj.activo !== '0';
-      rows.push(obj);
-    }
-    if (!rows.length) { toast('No se encontraron filas validas','red'); return; }
-    if (!confirm('Importar '+rows.length+' registros a '+storeName+'? Se agregaran a los datos existentes.')) return;
-    var ok = 0;
-    for (var j=0; j<rows.length; j++) {
-      try { await dbAdd(storeName, rows[j]); ok++; } catch(err) {}
-    }
-    toast(ok + ' registros importados a ' + storeName);
-    await navTo(storeName);
-  };
-  input.click();
-}
-
-function parseCSVLine(line) {
-  var result = []; var cur = ''; var inQ = false;
-  for (var i=0; i<line.length; i++) {
-    var c = line[i];
-    if (c==='"' && !inQ) { inQ=true; }
-    else if (c==='"' && inQ && line[i+1]==='"') { cur+='"'; i++; }
-    else if (c==='"' && inQ) { inQ=false; }
-    else if (c===',' && !inQ) { result.push(cur.trim()); cur=''; }
-    else { cur+=c; }
-  }
-  result.push(cur.trim());
-  return result;
-}
-
-// ================================================================
-
-/* ================================================================
-   ENVÍO WHATSAPP VIA CALLMEBOT - Función centralizada
-   ================================================================ */
 async function renderConfiguracion(content, actions) {
   if (!soloAdmin()) { content.innerHTML='<div class="alert alert-red">Solo administradores</div>'; return; }
   var cfg   = await dbGet('config','taller') || {};
@@ -589,7 +83,45 @@ async function renderConfiguracion(content, actions) {
 
 
 
-function guardarConfigCompleta() {
+function mostrarZonaPeligroCfg() {
+  openModal('zonaPeligro', 'Reiniciar base de datos',
+    '<div style="background:var(--red-dim);border:1px solid rgba(224,90,78,.4);border-radius:8px;padding:14px;margin-bottom:14px">'
+    + '<div style="font-weight:700;font-size:14px;color:var(--red);margin-bottom:6px">⚠ Esta acción no se puede deshacer</div>'
+    + '<div style="font-size:12px;color:var(--text2);line-height:1.8">Se eliminarán TODOS los datos: clientes, vehículos, órdenes, empleados, facturas, costos, inventario.<br><strong>La licencia y el perfil del taller NO se borran.</strong></div>'
+    + '</div>'
+    + '<div style="font-size:13px;margin-bottom:8px">Escribe <strong>CONFIRMAR</strong> para continuar:</div>'
+    + '<input id="reset_confirm_txt" placeholder="CONFIRMAR" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:10px;color:var(--text);font-size:14px;text-align:center;font-weight:700;outline:none;box-sizing:border-box">',
+    async function() {
+      var txt = (document.getElementById('reset_confirm_txt')||{}).value||'';
+      if (txt.trim() !== 'CONFIRMAR') { toast('Escribe CONFIRMAR para continuar', 'red'); return; }
+      await resetearBaseDatos();
+    }, false
+  );
+}
+
+
+
+function _lRowGlobal(l, i) {
+  return '<div class="form-row" style="grid-template-columns:2fr 1fr 1fr 1fr auto;gap:6px;margin-bottom:6px" id="lf_r_'+i+'">'
+    +'<input placeholder="Descripcion" value="'+(l.desc||'')+'" id="lf_d_'+i+'" oninput="calcTotFac()">'
+    +'<input type="number" value="'+(l.qty||1)+'" id="lf_q_'+i+'" step="0.01" min="0" oninput="calcTotFac()">'
+    +'<input type="number" value="'+(l.unit||0)+'" id="lf_u_'+i+'" step="0.01" min="0" oninput="calcTotFac()">'
+    +'<input type="number" value="'+(l.desc_pct||0)+'" id="lf_p_'+i+'" min="0" max="100" oninput="calcTotFac()">'
+    +'<button class="btn btn-sm btn-danger btn-icon" onclick="document.getElementById(\'lf_r_'+i+'\').remove();calcTotFac()" style="margin-top:0">X</button>'
+    +'</div>';
+}
+
+function addLF() {
+  var list = document.getElementById('lf_list');
+  if (!list) return;
+  var i = list.children.length;
+  var fn = window._lRow || _lRowGlobal;
+  list.insertAdjacentHTML('beforeend', fn({desc:'',qty:1,unit:0,desc_pct:0}, i));
+  calcTotFac();
+}
+
+
+async function guardarConfigCompleta() {
   var nombre = (document.getElementById("cfg_nombre")||{}).value||"";
   if (!nombre.trim()) { toast("El nombre del taller es requerido","red"); return; }
   var cfg = {
@@ -994,6 +526,790 @@ async function crearProveedorInline(onCreado) {
     },true);
 }
 
+async function crearEmpleadoInline(onCreado) {
+  openModal('emp_inline','Nuevo Empleado (rapido)',
+    '<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Nombre *</label><input id="ei_nom" placeholder="Nombre completo"></div>'
+    +'<div class="form-group"><label>Cargo</label><input id="ei_car" placeholder="Mecanico, Auxiliar..."></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Salario base (Q)</label><input id="ei_sal" type="number" value="4002.28" step="0.01"></div>'
+    +'<div class="form-group"><label>Circunscripcion</label>'
+    +'<select id="ei_ce"><option value="CE1">CE1 - Depto. Guatemala</option><option value="CE2">CE2 - Resto</option></select>'
+    +'</div></div>',
+    async function(){
+      var nom=document.getElementById('ei_nom').value.trim();
+      if(!nom){toast('Nombre requerido','red');return;}
+      var id=await dbAdd('empleados',{nombre:nom,cargo:document.getElementById('ei_car').value.trim(),
+        salarioBase:parseFloat(document.getElementById('ei_sal').value)||4002.28,
+        circunscripcion:document.getElementById('ei_ce').value,
+        activo:true,fechaIngreso:today(),createdAt:nowTs()});
+      cerrarModal('emp_inline');
+      toast('Empleado creado');
+      if(onCreado) onCreado({id:id,nombre:nom});
+    },true);
+}
+
+// Helper para agregar boton "+ Nuevo" junto a un select
+function selectConBotonNuevo(selectEl, tipo, callback) {
+  if(!selectEl) return;
+  var btn=document.createElement('button');
+  btn.type='button';
+  btn.className='btn btn-sm btn-secondary';
+  btn.style.cssText='padding:4px 8px;font-size:11px;margin-top:4px';
+  btn.textContent='+ Nuevo '+tipo;
+  btn.onclick=function(e){
+    e.preventDefault();
+    if(tipo==='cliente') crearClienteInline(function(nuevo){
+      var opt=document.createElement('option');
+      opt.value=nuevo.id;opt.textContent=nuevo.nombre;opt.selected=true;
+      selectEl.appendChild(opt);
+      if(callback) callback(nuevo);
+    });
+    else if(tipo==='proveedor') crearProveedorInline(function(nuevo){
+      var opt=document.createElement('option');
+      opt.value=nuevo.id;opt.textContent=nuevo.empresa;opt.selected=true;
+      selectEl.appendChild(opt);
+      if(callback) callback(nuevo);
+    });
+    else if(tipo==='empleado') crearEmpleadoInline(function(nuevo){
+      var opt=document.createElement('option');
+      opt.value=nuevo.id;opt.textContent=nuevo.nombre;opt.selected=true;
+      selectEl.appendChild(opt);
+      if(callback) callback(nuevo);
+    });
+  };
+  selectEl.parentNode.appendChild(btn);
+}
+
+// Agregar botones inline despues de que el modal se renderiza
+function agregarBotonesInline(config) {
+  // config = [{selectId:'f_cliente', tipo:'cliente'}, ...]
+  setTimeout(function(){
+    config.forEach(function(c){
+      var sel=document.getElementById(c.selectId);
+      if(sel) selectConBotonNuevo(sel,c.tipo,c.callback);
+    });
+  },150);
+}
+
+// ---- INSUMOS: AGREGAR CAMPO PROVEEDOR ----
+async function modalInsumo(id) {
+  var ins = id ? await dbGet('insumos',id) : {};
+  var provs = await dbGetAll('proveedores');
+  var cats=['Aceites','Refrigerantes','Quimicos','Consumibles','Limpieza','Lubricantes','Filtros','Otro'];
+  var provOpts='<option value="">Sin proveedor</option>'
+    +provs.map(function(p){return '<option value="'+p.id+'"'+(ins.proveedorId===p.id?' selected':'')+'>'+p.empresa+'</option>';}).join('');
+
+  openModal('ins_m', id?'Editar Insumo':'Nuevo Insumo',
+    '<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Nombre *</label><input id="in_n" value="'+(ins.nombre||'')+'" placeholder="Aceite 20W-50 Sintetico"></div>'
+    +'<div class="form-group"><label>Categoria</label><select id="in_ca">'+cats.map(function(c){return '<option value="'+c+'"'+(ins.categoria===c?' selected':'')+'>'+c+'</option>';}).join('')+'</select></div>'
+    +'</div>'
+    +'<div class="form-row form-row-3">'
+    +'<div class="form-group"><label>Stock actual</label><input id="in_st" type="number" value="'+(ins.stock||0)+'" min="0"></div>'
+    +'<div class="form-group"><label>Stock minimo</label><input id="in_sm" type="number" value="'+(ins.stockMin||5)+'" min="0"></div>'
+    +'<div class="form-group"><label>Unidad</label><input id="in_u" value="'+(ins.unidad||'litro')+'" placeholder="litro, galon..."></div>'
+    +'</div>'
+    +'<div class="form-row form-row-3">'
+    +'<div class="form-group"><label>Precio compra (Q)</label><input id="in_co" type="number" value="'+(ins.costo||0)+'" step="0.01" oninput="calcMargIns2()"></div>'
+    +'<div class="form-group"><label>Precio venta (Q)</label><input id="in_pr" type="number" value="'+(ins.precio||0)+'" step="0.01" oninput="calcMargIns2()"></div>'
+    +'<div class="form-group"><label>Margen</label><input id="in_ma" readonly style="background:var(--bg4)"></div>'
+    +'</div>'
+    +'<div class="form-group"><label>Proveedor</label>'
+    +'<select id="in_pv">'+provOpts+'</select></div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Tiene caducidad</label><select id="in_tc" onchange="togCadI2()"><option value="no"'+(ins.fechaCaducidad?'':' selected')+'>No caduca</option><option value="si"'+(ins.fechaCaducidad?' selected':'')+'>Si</option></select></div>'
+    +'<div id="in_cw2" style="display:'+(ins.fechaCaducidad?'block':'none')+'"><div class="form-group"><label>Fecha caducidad</label><input id="in_ca2" type="date" value="'+(ins.fechaCaducidad||'')+'"></div></div>'
+    +'</div>',
+    async function(){
+      var nom=document.getElementById('in_n').value.trim();
+      if(!nom){toast('Nombre requerido','red');return;}
+      var cos=$n('in_co'),pre=$n('in_pr');
+      var mar=pre>0&&cos>0?(pre-cos)/pre:0;
+      var pId=parseInt(document.getElementById('in_pv').value)||null;
+      var provE=provs.find(function(p){return p.id===pId;});
+      var obj={nombre:nom,categoria:$v('in_ca'),stock:parseInt($v('in_st'))||0,stockMin:parseInt($v('in_sm'))||5,
+        unidad:$v('in_u'),costo:cos,precio:pre,margen:mar,
+        proveedorId:pId,proveedor:provE?provE.empresa:'',
+        fechaCaducidad:$v('in_tc')==='si'?$v('in_ca2'):null,tipo:'insumo',updatedAt:nowTs()};
+      if(id){obj.id=id;await dbPut('insumos',obj);}else{obj.createdAt=nowTs();await dbAdd('insumos',obj);}
+      cerrarModal('ins_m');toast(id?'Actualizado':'Registrado');await navTo('insumos');
+    },true);
+  setTimeout(function(){
+    calcMargIns2();
+    var sel=document.getElementById('in_pv');
+    if(sel) selectConBotonNuevo(sel,'proveedor');
+  },100);
+}
+
+function calcMargIns2(){var c=$n('in_co'),p=$n('in_pr'),el=document.getElementById('in_ma');if(!el)return;if(p>0&&c>0){var m=((p-c)/p)*100;el.value=m.toFixed(1)+'%';el.style.color=m<20?'var(--red)':m<35?'var(--accent)':'var(--green)';}else el.value='---';}
+function togCadI2(){var v=$v('in_tc'),w=document.getElementById('in_cw2');if(w)w.style.display=v==='si'?'block':'none';}
+
+// ---- MODULO: ENVIOS ----
+
+function toggleMensajeroEnvio() {
+  var tipo = (document.getElementById('ev_tip_mens')||{}).value;
+  var propio = document.getElementById('env_propio_wrap');
+  var externo = document.getElementById('env_externo_wrap');
+  if (propio) propio.style.display = tipo === 'propio' ? 'block' : 'none';
+  if (externo) externo.style.display = tipo === 'externo' ? 'block' : 'none';
+}
+
+async function crearClienteRapidoVeh() {
+  var nombre = prompt('Nombre del cliente:');
+  if (!nombre || !nombre.trim()) return;
+  var nit = prompt('NIT (o CF):') || 'CF';
+  var tel = prompt('Teléfono:') || '';
+  var id = await dbAdd('clientes', {
+    nombre: nombre.trim(), nit: nit.trim(), telefono: tel.trim(),
+    tipo: 'persona', createdAt: nowTs(), updatedAt: nowTs()
+  });
+  await logAuditoria('CREAR','clientes','Cliente creado rápido desde vehículo: '+nombre,{});
+  toast('Cliente creado. Selecciónalo en la lista.');
+  var sel = document.getElementById('v_cliente');
+  if (sel) {
+    var opt = document.createElement('option');
+    opt.value = id; opt.textContent = nombre.trim(); opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+
+async function renderEnvios(content, actions) {
+  var envios = await dbGetAll('envios');
+  envios.sort(function(a,b){return (a.fecha||'')<(b.fecha||'')?1:-1;});
+  actions.innerHTML='<button class="btn btn-primary" onclick="modalEnvio()">+ Nuevo envio</button>';
+
+  var transportistas=[{k:'guatex',l:'Guatex'},{k:'cargo_expreso',l:'Cargo Expreso'},{k:'a_forza',l:'A Forza'},{k:'interrapidisimo',l:'Interrapidisimo'},{k:'propio',l:'Mensajero propio'},{k:'otro',l:'Otro'}];
+  var colores={pendiente:'amber',en_transito:'blue',entregado:'green',devuelto:'red'};
+
+  var resumen={pendiente:0,en_transito:0,entregado:0,devuelto:0};
+  envios.forEach(function(e){if(resumen[e.estado]!==undefined)resumen[e.estado]++;});
+
+  var rows=envios.map(function(e){
+    var tc=transportistas.find(function(t){return t.k===e.transportista;})||{l:e.transportista||'---'};
+    return '<tr>'
+      +'<td class="td-mono" style="font-size:10px">'+(e.noGuia||'---')+'</td>'
+      +'<td>'+fechaLegible(e.fecha)+'</td>'
+      +'<td><span class="badge badge-gray">'+tc.l+'</span></td>'
+      +'<td>'+(e.tipoEnvio==='domicilio'?'<span class="badge badge-blue">Domicilio</span>':'<span class="badge badge-gray">Bodega</span>')+'</td>'
+      +'<td style="font-size:11px">'+(e.destinatario||'---')+'</td>'
+      +'<td style="font-size:11px">'+(e.clienteNombre||'---')+'</td>'
+      +'<td class="td-mono">Q '+(e.costoEnvio||0).toFixed(2)+'</td>'
+      +'<td><span class="badge badge-'+(colores[e.estado]||'gray')+'">'+(e.estado||'pendiente')+'</span></td>'
+      +'<td><div class="flex gap-1">'
+      +'<button class="btn btn-sm btn-secondary" onclick="modalEnvio('+e.id+')">Ver/Editar</button>'
+      +'</div></td></tr>';
+  }).join('');
+
+  content.innerHTML='<div class="section-title">Modulo de Envios</div>'
+    +'<div class="section-sub">Traslados entre bodegas y envios a domicilio de clientes</div>'
+    +'<div class="stat-grid">'
+    +'<div class="stat-card stat-amber"><div class="stat-label">Pendientes</div><div class="stat-value">'+resumen.pendiente+'</div></div>'
+    +'<div class="stat-card stat-blue"><div class="stat-label">En transito</div><div class="stat-value">'+resumen.en_transito+'</div></div>'
+    +'<div class="stat-card stat-green"><div class="stat-label">Entregados</div><div class="stat-value">'+resumen.entregado+'</div></div>'
+    +'<div class="stat-card stat-red"><div class="stat-label">Devueltos</div><div class="stat-value">'+resumen.devuelto+'</div></div>'
+    +'</div>'
+    +'<div class="card" style="padding:10px"><div class="table-wrap"><table>'
+    +'<thead><tr><th>No. Guia</th><th>Fecha</th><th>Transportista</th><th>Tipo</th><th>Destinatario</th><th>Cliente</th><th>Costo</th><th>Estado</th><th>Acciones</th></tr></thead>'
+    +'<tbody>'+(rows||'<tr><td colspan="9" class="text-center text-muted" style="padding:16px">Sin envios registrados</td></tr>')+'</tbody>'
+    +'</table></div></div>';
+}
+
+async function modalEnvio(id) {
+  var e = id ? await dbGet('envios',id) : {};
+  var clientes = await dbGetAll('clientes');
+  var repuestos = await dbGetAll('repuestos');
+  var insumos   = await dbGetAll('insumos');
+  var productos = repuestos.concat(insumos);
+  var cliOpts='<option value="">Sin cliente</option>'+clientes.map(function(c){return '<option value="'+c.id+'"'+(e.clienteId===c.id?' selected':'')+'>'+c.nombre+'</option>';}).join('');
+  var transportistas=['guatex','cargo_expreso','a_forza','interrapidisimo','propio','otro'];
+  var transportLabels={guatex:'Guatex',cargo_expreso:'Cargo Expreso',a_forza:'A Forza',interrapidisimo:'Interrapidisimo',propio:'Mensajero propio',otro:'Otro'};
+  var transOpts=transportistas.map(function(t){return '<option value="'+t+'"'+(e.transportista===t?' selected':'')+'>'+transportLabels[t]+'</option>';}).join('');
+  var items=e.items||[{productoId:'',cantidad:1,descripcion:''}];
+
+  openModal('env_m',id?'Editar Envio':'Nuevo Envio',
+    '<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Tipo de envio *</label>'
+    +'<select id="ev_tipo"><option value="domicilio"'+(e.tipoEnvio==='domicilio'||!e.tipoEnvio?' selected':'')+'>Envio a domicilio (cliente)</option>'
+    +'<option value="bodega"'+(e.tipoEnvio==='bodega'?' selected':'')+'>Traslado entre bodegas</option></select></div>'
+    +'<div class="form-group"><label>Transportista *</label><select id="ev_trans">'+transOpts+'</select></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>No. de guia</label><input id="ev_guia" value="'+(e.noGuia||'')+'" placeholder="Numero de guia del transportista"></div>'
+    +'<div class="form-group"><label>Estado</label>'
+    +'<select id="ev_est"><option value="pendiente"'+(e.estado==='pendiente'||!e.estado?' selected':'')+'>Pendiente</option>'
+    +'<option value="en_transito"'+(e.estado==='en_transito'?' selected':'')+'>En transito</option>'
+    +'<option value="entregado"'+(e.estado==='entregado'?' selected':'')+'>Entregado</option>'
+    +'<option value="devuelto"'+(e.estado==='devuelto'?' selected':'')+'>Devuelto</option></select></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Fecha de envio *</label><input id="ev_fec" type="date" value="'+(e.fecha||today())+'"></div>'
+    +'<div class="form-group"><label>Fecha/hora estimada de entrega</label><input id="ev_fent" type="datetime-local" value="'+(e.fechaEntrega||'')+'"></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Quien envia</label><input id="ev_env" value="'+(e.quienEnvia||'')+'" placeholder="Nombre del remitente"></div>'
+    +'<div class="form-group"><label>Destinatario *</label><input id="ev_dest" value="'+(e.destinatario||'')+'" placeholder="Nombre completo"></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Direccion de entrega</label><input id="ev_dir" value="'+(e.direccionEntrega||'')+'" placeholder="Direccion completa"></div>'
+    +'<div class="form-group"><label>Telefono destinatario</label><input id="ev_tel" value="'+(e.telefonoDestinatario||'')+'" placeholder="+502 5555-0000" onblur="onTelBlur(this)"></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Cliente (si aplica)</label><select id="ev_cli">'+cliOpts+'</select></div>'
+    +'<div class="form-group"><label>No. Factura relacionada</label><input id="ev_fac" value="'+(e.noFactura||'')+'" placeholder="FAC-001"></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Costo del envio (Q)</label><input id="ev_cost" type="number" value="'+(e.costoEnvio||'')+'" step="0.01" placeholder="0.00"></div>'
+    +'<div class="form-group"><label>Tipo de servicio contratado</label>'
+    +'<select id="ev_srv"><option value="estandar"'+(e.tipoServicioEnvio==='estandar'?' selected':'')+'>Estandar</option>'
+    +'<option value="express"'+(e.tipoServicioEnvio==='express'?' selected':'')+'>Express / Urgente</option>'
+    +'<option value="programado"'+(e.tipoServicioEnvio==='programado'?' selected':'')+'>Programado</option>'
+    +'<option value="puerta_a_puerta"'+(e.tipoServicioEnvio==='puerta_a_puerta'?' selected':'')+'>Puerta a puerta</option></select></div>'
+    +'</div>'
+    +'<div class="form-group"><label>Descripcion del contenido</label><textarea id="ev_desc" style="min-height:60px" placeholder="Repuestos, insumos, documentos...">'+(e.descripcion||'')+'</textarea></div>'
+    +'<div class="form-group"><label>Observaciones</label><input id="ev_obs" value="'+(e.observaciones||'')+'" placeholder="Instrucciones especiales, fragil, etc."></div>',
+    async function(){
+      var dest=document.getElementById('ev_dest').value.trim();
+      if(!dest){toast('Destinatario requerido','red');return;}
+      var cliId=parseInt(document.getElementById('ev_cli').value)||null;
+      var cli=clientes.find(function(c){return c.id===cliId;});
+      var tipoMens = $v('ev_tip_mens') || 'propio';
+      var costoExt = parseFloat((document.getElementById('ev_costo_ext')||{}).value)||0;
+      if (tipoMens === 'externo' && costoExt > 0) {
+        await dbAdd('costos', {
+          fecha: today(), tipo: 'Mensajería externa',
+          descripcion: 'Servicio de mensajería: ' + ($v('ev_trans')||'externo'),
+          monto: costoExt, categoria: 'Logística', pagado: true,
+          createdAt: nowTs(), updatedAt: nowTs()
+        });
+      }
+      var obj={tipoMensajero:tipoMens,
+        mensajeroNombre:$v('ev_mens_nom'),mensajeroTel:$v('ev_mens_tel'),
+        costoExterno:costoExt,
+        tipoEnvio:$v('ev_tipo'),transportista:$v('ev_trans'),noGuia:$v('ev_guia').trim(),
+        estado:$v('ev_est'),fecha:$v('ev_fec'),fechaEntrega:$v('ev_fent'),
+        quienEnvia:$v('ev_env').trim(),destinatario:dest,direccionEntrega:$v('ev_dir').trim(),
+        telefonoDestinatario:$v('ev_tel').trim(),clienteId:cliId,clienteNombre:cli?cli.nombre:'',
+        noFactura:$v('ev_fac').trim(),costoEnvio:parseFloat($v('ev_cost'))||0,
+        tipoServicioEnvio:$v('ev_srv'),descripcion:$v('ev_desc').trim(),
+        observaciones:$v('ev_obs').trim(),updatedAt:nowTs()};
+      if(id){obj.id=id;await dbPut('envios',obj);}else{obj.createdAt=nowTs();await dbAdd('envios',obj);}
+      cerrarModal('env_m');toast(id?'Envio actualizado':'Envio registrado');await navTo('envios');
+    },true);
+  agregarBotonesInline([{selectId:'ev_cli',tipo:'cliente'}]);
+}
+
+// ---- MODULO: COTIZADOR ----
+var SERVICIOS_EXTRA=[
+  {id:'alarma',label:'Instalacion de alarma',precioBase:350,horas:3},
+  {id:'gps',label:'Instalacion GPS',precioBase:280,horas:2},
+  {id:'camaras',label:'Camaras de reversa / 360',precioBase:450,horas:4},
+  {id:'central_lock',label:'Central lock',precioBase:200,horas:2},
+  {id:'pantalla',label:'Pantalla inteligente / multimedia',precioBase:600,horas:4},
+  {id:'neblineras',label:'Neblineras',precioBase:300,horas:2},
+  {id:'luces_led',label:'Luces LED (faros, interior)',precioBase:250,horas:2},
+  {id:'scaneo',label:'Scaneo / diagnostico electronico',precioBase:150,horas:1},
+  {id:'lavado',label:'Lavado y encerado',precioBase:120,horas:2},
+  {id:'limpieza',label:'Limpieza general interior',precioBase:180,horas:2},
+  {id:'pulido',label:'Pulido de pintura',precioBase:400,horas:4},
+  {id:'otro',label:'Servicio personalizado',precioBase:0,horas:1},
+];
+
+async function renderCotizador(content, actions) {
+  var cotizaciones=await dbGetAll('cotizaciones');
+  cotizaciones.sort(function(a,b){return (a.fecha||'')<(b.fecha||'')?1:-1;});
+  actions.innerHTML='<button class="btn btn-primary" onclick="modalCotizacion()">+ Nueva cotizacion</button>';
+
+  var rows=cotizaciones.map(function(c){
+    return '<tr>'
+      +'<td class="td-mono">'+(c.noCotizacion||'#'+c.id)+'</td>'
+      +'<td>'+fechaLegible(c.fecha)+'</td>'
+      +'<td>'+(c.clienteNombre||'---')+'</td>'
+      +'<td style="font-size:11px">'+(c.placa||'---')+'</td>'
+      +'<td style="font-size:11px">'+(c.servicios||[]).length+' servicios</td>'
+      +'<td class="td-mono text-green">Q '+(c.totalConIVA||0).toFixed(2)+'</td>'
+      +'<td><span class="badge badge-'+(c.estado==='aprobada'?'green':c.estado==='rechazada'?'red':'amber')+'">'+(c.estado||'pendiente')+'</span></td>'
+      +'<td><div class="flex gap-1">'
+      +'<button class="btn btn-sm btn-secondary" onclick="imprimirCotizacion('+c.id+')">Imprimir</button>'
+      +'<button class="btn btn-sm btn-blue" onclick="cotizacionAOrden('+c.id+')">-> OT</button>'
+      +'<button class="btn btn-sm btn-secondary" onclick="modalCotizacion('+c.id+')">Editar</button>'
+      +'</div></td></tr>';
+  }).join('');
+
+  content.innerHTML='<div class="section-title">Cotizador de Servicios</div>'
+    +'<div class="section-sub">Genera cotizaciones para servicios extras y accesorios</div>'
+    +'<div class="card" style="padding:10px"><div class="table-wrap"><table>'
+    +'<thead><tr><th>No.</th><th>Fecha</th><th>Cliente</th><th>Placa</th><th>Servicios</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead>'
+    +'<tbody>'+(rows||'<tr><td colspan="8" class="text-center text-muted" style="padding:16px">Sin cotizaciones</td></tr>')+'</tbody>'
+    +'</table></div></div>';
+}
+
+async function modalCotizacion(id) {
+  var cot=id?await dbGet('cotizaciones',id):{};
+  var nuevoNoCOT = id ? (cot.noCotizacion||'') : await generarNumeroCOT();
+  var clientes=await dbGetAll('clientes');
+  var vehiculos=await dbGetAll('vehiculos');
+  var cfg=await dbGet('config','taller')||{};
+  var tarifaHora=cfg.tarifaHora||150;
+  var cliOpts='<option value="">Seleccionar...</option>'+clientes.map(function(c){return '<option value="'+c.id+'"'+(cot.clienteId===c.id?' selected':'')+'>'+c.nombre+'</option>';}).join('');
+  var vehOpts='<option value="">Seleccionar...</option>'+vehiculos.map(function(v){return '<option value="'+v.id+'"'+(cot.vehiculoId===v.id?' selected':'')+'>'+v.placa+' - '+v.marca+' '+v.modelo+'</option>';}).join('');
+  var serviciosSelec=cot.servicios||[];
+
+  openModal('cot_m',id?'Editar Cotizacion':'Nueva Cotizacion',
+    '<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>No. cotizacion</label><input id="ct_no" value="'+(cot.noCotizacion||nuevoNoCOT)+'"></div>'
+    +'<div class="form-group"><label>Fecha</label><input id="ct_fe" type="date" value="'+(cot.fecha||today())+'"></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Cliente *</label><select id="ct_cli">'+cliOpts+'</select></div>'
+    +'<div class="form-group"><label>Vehiculo</label><select id="ct_veh">'+vehOpts+'</select></div>'
+    +'</div>'
+    +'<div class="form-group"><label>Tarifa mano de obra (Q/hr)</label><input id="ct_tar" type="number" value="'+tarifaHora+'" step="0.01" oninput="calcTotCot()"></div>'
+    +'<div class="card-title" style="margin-bottom:8px;margin-top:4px">Servicios a cotizar</div>'
+    +'<div style="display:grid;gap:6px">'
+    +SERVICIOS_EXTRA.map(function(s){
+      var sel=serviciosSelec.find(function(x){return x.id===s.id;});
+      return '<div style="background:var(--bg3);border-radius:6px;padding:8px 10px;display:flex;align-items:center;gap:10px">'
+        +'<input type="checkbox" value="'+s.id+'" class="srv_cb" style="width:auto" onchange="calcTotCot()"'+(sel?' checked':'')+'>'
+        +'<span style="flex:1;font-size:12px">'+s.label+'</span>'
+        +'<input type="number" id="srv_p_'+s.id+'" value="'+(sel?sel.precio:s.precioBase)+'" step="0.01" min="0" style="width:100px;text-align:right;font-size:12px" placeholder="Precio Q" oninput="calcTotCot()">'
+        +'<input type="number" id="srv_h_'+s.id+'" value="'+(sel?sel.horas:s.horas)+'" min="0.5" step="0.5" style="width:60px;text-align:center;font-size:12px" placeholder="Hrs" oninput="calcTotCot()">'
+        +'</div>';
+    }).join('')
+    +'</div>'
+    +'<div class="form-group mt-2"><label>Notas adicionales</label><textarea id="ct_obs" style="min-height:50px">'+(cot.notas||'')+'</textarea></div>'
+    +'<div id="cot_tots" style="text-align:right;margin-top:10px"></div>',
+    async function(){
+      var cliId=parseInt($v('ct_cli'));
+      if(!cliId){toast('Cliente requerido','red');return;}
+      var cli=clientes.find(function(c){return c.id===cliId;});
+      var vehId=parseInt($v('ct_veh'))||null;
+      var veh=vehiculos.find(function(v){return v.id===vehId;});
+      var tar=$n('ct_tar',150);
+      var servicios=[];
+      document.querySelectorAll('.srv_cb:checked').forEach(function(cb){
+        var sid=cb.value;
+        var sdef=SERVICIOS_EXTRA.find(function(s){return s.id===sid;})||{};
+        var precio=$n('srv_p_'+sid)||0;
+        var horas=$n('srv_h_'+sid)||1;
+        servicios.push({id:sid,label:sdef.label||sid,precio:precio,horas:horas,
+          moLinea:parseFloat((horas*tar).toFixed(2))});
+      });
+      var subMat=servicios.reduce(function(a,s){return a+(s.precio||0);},0);
+      var subMO=servicios.reduce(function(a,s){return a+(s.moLinea||0);},0);
+      var sub=parseFloat((subMat+subMO).toFixed(2));
+      var iva=parseFloat((sub*0.12).toFixed(2));
+      var total=parseFloat((sub+iva).toFixed(2));
+      var obj={noCotizacion:$v('ct_no'),fecha:$v('ct_fe'),
+        clienteId:cliId,clienteNombre:cli?cli.nombre:'',
+        vehiculoId:vehId,placa:veh?veh.placa:'',
+        tarifaHora:tar,servicios:servicios,notas:$v('ct_obs').trim(),
+        subtotalMateriales:subMat,subtotalMO:subMO,subtotal:sub,iva:iva,totalConIVA:total,
+        estado:cot.estado||'pendiente',updatedAt:nowTs()};
+      if(id){obj.id=id;await dbPut('cotizaciones',obj);}else{obj.createdAt=nowTs();await dbAdd('cotizaciones',obj);}
+      cerrarModal('cot_m');toast(id?'Actualizada':'Cotizacion creada');await navTo('cotizador');
+    },true);
+  setTimeout(function(){calcTotCot();agregarBotonesInline([{selectId:'ct_cli',tipo:'cliente'}]);},150);
+}
+
+function calcTotCot(){
+  var tar=$n('ct_tar',150);
+  var subMat=0,subMO=0;
+  document.querySelectorAll('.srv_cb:checked').forEach(function(cb){
+    var sid=cb.value;
+    var p=parseFloat((document.getElementById('srv_p_'+sid)||{}).value)||0;
+    var h=parseFloat((document.getElementById('srv_h_'+sid)||{}).value)||0;
+    subMat+=p;subMO+=h*tar;
+  });
+  var sub=subMat+subMO;
+  var iva=sub*0.12;
+  var tot=sub+iva;
+  var el=document.getElementById('cot_tots');if(!el)return;
+  el.innerHTML='<div style="display:inline-block;min-width:280px;background:var(--bg3);border-radius:6px;padding:12px 16px;border:1px solid var(--border)">'
+    +'<div style="display:flex;justify-content:space-between;font-size:13px"><span>Materiales/repuestos:</span><span>Q '+subMat.toFixed(2)+'</span></div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:13px"><span>Mano de obra:</span><span>Q '+subMO.toFixed(2)+'</span></div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:13px;color:var(--accent)"><span>IVA 12%:</span><span>Q '+iva.toFixed(2)+'</span></div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;color:var(--green);border-top:1px solid var(--border);padding-top:6px;margin-top:4px"><span>TOTAL:</span><span>Q '+tot.toFixed(2)+'</span></div>'
+    +'</div>';
+}
+
+async function imprimirCotizacion(id){
+  var c=await dbGet('cotizaciones',id);
+  var cfg=await dbGet('config','taller')||{};
+  var logo=localStorage.getItem('tpgt_logo')||'';
+  var w=window.open('','_blank');
+  var rows=(c.servicios||[]).map(function(s){
+    return '<tr><td>'+s.label+'</td><td style="text-align:center">'+s.horas+'h</td>'
+      +'<td style="text-align:right">Q '+(s.precio||0).toFixed(2)+'</td>'
+      +'<td style="text-align:right">Q '+(s.moLinea||0).toFixed(2)+'</td>'
+      +'<td style="text-align:right">Q '+((s.precio||0)+(s.moLinea||0)).toFixed(2)+'</td></tr>';
+  }).join('');
+  var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Cotizacion '+c.noCotizacion+'</title>'
+    +'<style>body{font-family:Arial,sans-serif;font-size:12px;padding:28px;max-width:720px;margin:0 auto}'
+    +'table{width:100%;border-collapse:collapse;margin:10px 0}td,th{border:1px solid #ddd;padding:6px 8px}'
+    +'th{background:#f5f5f5;font-weight:700}.hdr{display:flex;justify-content:space-between;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:12px}'
+    +'.total{font-weight:700;font-size:14px;text-align:right}@media print{button{display:none}}</style></head><body>'
+    +'<div class="hdr"><div>'+(logo?'<img src="'+logo+'" style="height:50px;margin-bottom:4px"><br>':'')
+    +'<strong style="font-size:16px">'+(cfg.nombre||'TALLER')+'</strong><br>'
+    +'NIT: '+(cfg.nit||'---')+' | Tel: '+(cfg.telefono||'---')+'</div>'
+    +'<div style="text-align:right"><strong style="font-size:16px">COTIZACION</strong><br>'
+    +'No. '+(c.noCotizacion||c.id)+'<br>'+fechaLegible(c.fecha)+'</div></div>'
+    +'<div style="margin-bottom:10px"><strong>Cliente:</strong> '+c.clienteNombre
+    +(c.placa?'<br><strong>Vehiculo:</strong> '+c.placa:'')+'</div>'
+    +'<table><thead><tr><th>Servicio</th><th>Horas</th><th>Materiales Q</th><th>Mano de obra Q</th><th>Total Q</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table>'
+    +'<div class="total" style="margin-top:8px">'
+    +'<div>Subtotal: Q '+(c.subtotal||0).toFixed(2)+'</div>'
+    +'<div>IVA 12%: Q '+(c.iva||0).toFixed(2)+'</div>'
+    +'<div style="font-size:16px;border-top:2px solid #111;padding-top:6px">TOTAL: Q '+(c.totalConIVA||0).toFixed(2)+'</div></div>'
+    +(c.notas?'<div style="margin-top:10px;font-size:11px;color:#555">Notas: '+c.notas+'</div>':'')
+    +'<div style="margin-top:30px;font-size:11px;color:#555">Esta cotizacion tiene validez de 15 dias. '+(cfg.piePagina||'')+'</div>'
+    +'</body></html>';
+  w.document.write(html);w.document.close();setTimeout(function(){w.print();},400);
+}
+
+
+
+// ---- MODULO: BUDGET / PRESUPUESTO ----
+async function renderBudget(content, actions) {
+  var repuestos=await dbGetAll('repuestos');
+  var insumos=await dbGetAll('insumos');
+  var cfg=await dbGet('config','taller')||{};
+  var tarifa=cfg.tarifaHora||150;
+
+  content.innerHTML='<div class="section-title">Budget / Presupuesto de Mantenimiento</div>'
+    +'<div class="section-sub">Calcula el costo de servicios para campanas de captacion y publicidad</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">'
+
+    // Panel izquierdo: configuracion
+    +'<div>'
+    +'<div class="card"><div class="card-title" style="margin-bottom:12px">Parametros del presupuesto</div>'
+    +'<div class="form-group"><label>Nombre del paquete / servicio</label><input id="bg_nom" placeholder="Ej: Mantenimiento preventivo basico" value="Mantenimiento preventivo"></div>'
+    +'<div class="form-group"><label>Tipo de vehiculo</label>'
+    +'<select id="bg_tipo" onchange="recalcBudget()"><option value="sedan">Sedan</option><option value="pickup">Pickup / SUV</option><option value="camion">Camion / Furgon</option></select></div>'
+    +'<div class="divider"></div>'
+    +'<div class="card-title" style="margin-bottom:8px">Margenes de ganancia</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Margen mano de obra (%)</label>'
+    +'<input id="bg_mmo" type="number" value="40" min="20" max="200" oninput="recalcBudget()">'
+    +'<div class="form-hint">Minimo recomendado: 20%</div></div>'
+    +'<div class="form-group"><label>Margen repuestos/insumos (%)</label>'
+    +'<input id="bg_mrep" type="number" value="30" min="20" max="200" oninput="recalcBudget()">'
+    +'<div class="form-hint">Minimo legal: 20%</div></div>'
+    +'</div>'
+    +'<div class="divider"></div>'
+    +'<div class="card-title" style="margin-bottom:8px">Mano de obra</div>'
+    +'<div id="bg_mo_list">'
+    +'<div style="display:grid;grid-template-columns:2fr 1fr;gap:6px;margin-bottom:6px"><input placeholder="Concepto" id="mo1_c" value="Cambio de aceite" style="font-size:12px"><input type="number" placeholder="Horas" id="mo1_h" value="0.5" min="0.25" step="0.25" oninput="recalcBudget()" style="font-size:12px"></div>'
+    +'<div style="display:grid;grid-template-columns:2fr 1fr;gap:6px;margin-bottom:6px"><input placeholder="Concepto" id="mo2_c" value="Filtros" style="font-size:12px"><input type="number" placeholder="Horas" id="mo2_h" value="0.25" min="0.25" step="0.25" oninput="recalcBudget()" style="font-size:12px"></div>'
+    +'<div style="display:grid;grid-template-columns:2fr 1fr;gap:6px;margin-bottom:6px"><input placeholder="Concepto" id="mo3_c" value="Revision general" style="font-size:12px"><input type="number" placeholder="Horas" id="mo3_h" value="0.5" min="0.25" step="0.25" oninput="recalcBudget()" style="font-size:12px"></div>'
+    +'</div>'
+    +'<div class="divider"></div>'
+    +'<div class="card-title" style="margin-bottom:8px">Repuestos e insumos (costo de compra)</div>'
+    +'<div id="bg_rep_list">'
+    +'<div style="display:grid;grid-template-columns:2fr 1fr;gap:6px;margin-bottom:6px"><input placeholder="Producto" id="r1_n" value="Aceite motor (4L)" style="font-size:12px"><input type="number" placeholder="Costo Q" id="r1_c" value="120" min="0" step="0.01" oninput="recalcBudget()" style="font-size:12px"></div>'
+    +'<div style="display:grid;grid-template-columns:2fr 1fr;gap:6px;margin-bottom:6px"><input placeholder="Producto" id="r2_n" value="Filtro de aceite" style="font-size:12px"><input type="number" placeholder="Costo Q" id="r2_c" value="35" min="0" step="0.01" oninput="recalcBudget()" style="font-size:12px"></div>'
+    +'<div style="display:grid;grid-template-columns:2fr 1fr;gap:6px;margin-bottom:6px"><input placeholder="Producto" id="r3_n" value="Filtro de aire" style="font-size:12px"><input type="number" placeholder="Costo Q" id="r3_c" value="45" min="0" step="0.01" oninput="recalcBudget()" style="font-size:12px"></div>'
+    +'</div>'
+    +'</div></div>'
+
+    // Panel derecho: resultado
+    +'<div>'
+    +'<div class="card" id="bg_resultado"><div class="text-muted text-center" style="padding:20px">Configura los parametros para ver el presupuesto</div></div>'
+    +'<div class="card">'
+    +'<div class="card-title" style="margin-bottom:10px">Acciones</div>'
+    +'<div style="display:grid;gap:8px">'
+    +'<button class="btn btn-primary" onclick="recalcBudget()">Recalcular</button>'
+    +'<button class="btn btn-secondary" onclick="imprimirBudget()">Imprimir presupuesto</button>'
+    +'<button class="btn btn-green" onclick="imprimirPublicidad()">Generar publicidad / flyer</button>'
+    +'</div></div>'
+    +'</div>'
+
+    +'</div>';
+
+  setTimeout(recalcBudget, 100);
+}
+
+function recalcBudget(){
+  var mmoMarg=(parseFloat(document.getElementById('bg_mmo').value)||40)/100;
+  var repMarg=(parseFloat(document.getElementById('bg_mrep').value)||30)/100;
+  var cfg_tar=150;
+
+  // Mano de obra
+  var moItems=[];
+  for(var i=1;i<=3;i++){
+    var con=(document.getElementById('mo'+i+'_c')||{}).value||'';
+    var hrs=parseFloat((document.getElementById('mo'+i+'_h')||{}).value)||0;
+    if(con&&hrs>0){
+      var costoMO=hrs*cfg_tar;
+      var precioMO=costoMO*(1+mmoMarg);
+      moItems.push({con:con,hrs:hrs,costo:costoMO,precio:precioMO});
+    }
+  }
+  // Repuestos
+  var repItems=[];
+  for(var j=1;j<=3;j++){
+    var nom=(document.getElementById('r'+j+'_n')||{}).value||'';
+    var cost=parseFloat((document.getElementById('r'+j+'_c')||{}).value)||0;
+    if(nom&&cost>0){
+      var precioR=cost*(1+repMarg);
+      repItems.push({nom:nom,costo:cost,precio:precioR});
+    }
+  }
+
+  var totCostoMO=moItems.reduce(function(a,m){return a+m.costo;},0);
+  var totPrecioMO=moItems.reduce(function(a,m){return a+m.precio;},0);
+  var totCostoRep=repItems.reduce(function(a,r){return a+r.costo;},0);
+  var totPrecioRep=repItems.reduce(function(a,r){return a+r.precio;},0);
+  var totCosto=totCostoMO+totCostoRep;
+  var totPrecio=totPrecioMO+totPrecioRep;
+  var iva=totPrecio*0.12;
+  var totalFinal=totPrecio+iva;
+  var utilidad=totPrecio-totCosto;
+  var margenReal=totPrecio>0?((utilidad/totPrecio)*100).toFixed(1):0;
+
+  var alertMarg=(mmoMarg*100)<20||( repMarg*100)<20
+    ?'<div class="alert alert-red" style="font-size:11px">Margen por debajo del minimo del 20%</div>':
+    '<div class="alert alert-green" style="font-size:11px">Margenes dentro del rango recomendado</div>';
+
+  var moRows=moItems.map(function(m){
+    return '<tr><td>'+m.con+'</td><td class="td-mono" style="text-align:right">'+m.hrs+'h</td>'
+      +'<td class="td-mono" style="text-align:right;color:var(--text3)">Q '+m.costo.toFixed(2)+'</td>'
+      +'<td class="td-mono" style="text-align:right;color:var(--green)">Q '+m.precio.toFixed(2)+'</td></tr>';
+  }).join('');
+  var repRows=repItems.map(function(r){
+    return '<tr><td>'+r.nom+'</td><td></td>'
+      +'<td class="td-mono" style="text-align:right;color:var(--text3)">Q '+r.costo.toFixed(2)+'</td>'
+      +'<td class="td-mono" style="text-align:right;color:var(--green)">Q '+r.precio.toFixed(2)+'</td></tr>';
+  }).join('');
+
+  var el=document.getElementById('bg_resultado');if(!el)return;
+  el.innerHTML='<div class="card-title" style="margin-bottom:10px">Presupuesto: '+($v('bg_nom')||'Servicio')+'</div>'
+    +alertMarg
+    +'<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px">'
+    +'<thead><tr><th style="text-align:left;border-bottom:1px solid var(--border);padding:4px 0">Concepto</th>'
+    +'<th style="border-bottom:1px solid var(--border);padding:4px 0">Det.</th>'
+    +'<th style="text-align:right;border-bottom:1px solid var(--border);padding:4px 0">Costo</th>'
+    +'<th style="text-align:right;border-bottom:1px solid var(--border);padding:4px 0">Precio venta</th></tr></thead>'
+    +'<tbody>'+moRows+repRows+'</tbody></table>'
+    +'<div style="background:var(--bg3);border-radius:6px;padding:12px">'
+    +'<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span>Total costo:</span><span class="td-mono text-red">Q '+totCosto.toFixed(2)+'</span></div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span>Subtotal venta:</span><span class="td-mono">Q '+totPrecio.toFixed(2)+'</span></div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;color:var(--accent)"><span>IVA 12%:</span><span class="td-mono">Q '+iva.toFixed(2)+'</span></div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;color:var(--green);border-top:1px solid var(--border);padding-top:6px;margin-top:4px"><span>PRECIO FINAL:</span><span class="td-mono">Q '+totalFinal.toFixed(2)+'</span></div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--blue);padding-top:4px"><span>Utilidad neta:</span><span class="td-mono">Q '+utilidad.toFixed(2)+' ('+margenReal+'%)</span></div>'
+    +'</div>'
+    +'<div style="margin-top:10px;font-size:11px;color:var(--text3)">'
+    +'Margen MO: '+(mmoMarg*100).toFixed(0)+'% | Margen repuestos: '+(repMarg*100).toFixed(0)+'%'
+    +'</div>';
+
+  // Guardar en ventana para imprimir
+  window._budgetData={
+    nombre:$v('bg_nom'),moItems:moItems,repItems:repItems,
+    totCosto:totCosto,totPrecio:totPrecio,iva:iva,totalFinal:totalFinal,
+    utilidad:utilidad,margenReal:margenReal,
+    mmoMarg:(mmoMarg*100).toFixed(0),repMarg:(repMarg*100).toFixed(0)
+  };
+}
+
+async function imprimirBudget(){
+  var d=window._budgetData;if(!d){toast('Recalcula primero','amber');return;}
+  var cfg=await dbGet('config','taller')||{};
+  var logo=localStorage.getItem('tpgt_logo')||'';
+  var w=window.open('','_blank');
+  var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Budget</title>'
+    +'<style>body{font-family:Arial,sans-serif;font-size:12px;padding:28px;max-width:600px;margin:0 auto}'
+    +'table{width:100%;border-collapse:collapse}td,th{border:1px solid #ddd;padding:5px 8px}'
+    +'th{background:#f5f5f5}.total{font-weight:700;font-size:14px}@media print{button{display:none}}</style></head><body>'
+    +'<div style="text-align:center;border-bottom:2px solid #111;padding-bottom:12px;margin-bottom:14px">'
+    +(logo?'<img src="'+logo+'" style="height:50px;margin-bottom:6px"><br>':'')
+    +'<strong style="font-size:18px">'+(cfg.nombre||'TALLER')+'</strong><br>'
+    +'<span style="font-size:11px;color:#555">NIT: '+(cfg.nit||'---')+' | Tel: '+(cfg.telefono||'---')+'</span></div>'
+    +'<h2 style="text-align:center;margin-bottom:12px">PRESUPUESTO: '+d.nombre+'</h2>'
+    +'<table><thead><tr><th>Concepto</th><th>Detalle</th><th style="text-align:right">Precio venta Q</th></tr></thead><tbody>'
+    +d.moItems.map(function(m){return '<tr><td>'+m.con+'</td><td style="text-align:center">'+m.hrs+'h</td><td style="text-align:right">'+m.precio.toFixed(2)+'</td></tr>';}).join('')
+    +d.repItems.map(function(r){return '<tr><td>'+r.nom+'</td><td></td><td style="text-align:right">'+r.precio.toFixed(2)+'</td></tr>';}).join('')
+    +'</tbody></table>'
+    +'<div style="text-align:right;margin-top:8px">'
+    +'<div>Subtotal: Q '+d.totPrecio.toFixed(2)+'</div>'
+    +'<div>IVA 12%: Q '+d.iva.toFixed(2)+'</div>'
+    +'<div class="total" style="font-size:16px;border-top:2px solid #111;padding-top:6px">TOTAL: Q '+d.totalFinal.toFixed(2)+'</div></div>'
+    +'<div style="margin-top:16px;font-size:11px;color:#555;text-align:center">'+(cfg.piePagina||'')+'</div>'
+    +'</body></html>';
+  w.document.write(html);w.document.close();setTimeout(function(){w.print();},400);
+}
+
+async function imprimirPublicidad(){
+  var d=window._budgetData;if(!d){toast('Recalcula primero','amber');return;}
+  var cfg=await dbGet('config','taller')||{};
+  var logo=localStorage.getItem('tpgt_logo')||'';
+  var w=window.open('','_blank');
+  var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Publicidad</title>'
+    +'<style>body{font-family:Arial,sans-serif;background:#fff;margin:0;padding:0}'
+    +'.flyer{max-width:600px;margin:0 auto;border:4px solid #e8a820;border-radius:12px;overflow:hidden}'
+    +'.header{background:#111;color:#fff;text-align:center;padding:24px}'
+    +'.logo{height:70px;margin-bottom:8px}'
+    +'.titulo{font-size:24px;font-weight:900;color:#e8a820;margin-top:6px}'
+    +'.precio{background:#e8a820;text-align:center;padding:20px}'
+    +'.precio .monto{font-size:48px;font-weight:900;color:#111}'
+    +'.precio .label{font-size:14px;color:#333;margin-top:4px}'
+    +'.incluye{padding:20px;background:#f9f9f9}'
+    +'.incluye h3{font-size:14px;font-weight:700;margin-bottom:10px;color:#333}'
+    +'.item{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;border-bottom:1px solid #eee}'
+    +'.check{color:#4caf7d;font-size:16px;font-weight:700}'
+    +'.footer{background:#111;color:#e8a820;text-align:center;padding:14px;font-size:12px}'
+    +'@media print{body{margin:0}button{display:none}@page{margin:5mm}}</style></head><body>'
+    +'<div class="flyer">'
+    +'<div class="header">'
+    +(logo?'<img src="'+logo+'" class="logo"><br>':'')
+    +'<div style="font-size:20px;font-weight:900;color:#fff">'+(cfg.nombre||'TALLER PRO GT')+'</div>'
+    +'<div class="titulo">'+d.nombre+'</div>'
+    +'</div>'
+    +'<div class="precio">'
+    +'<div style="font-size:14px;color:#333;margin-bottom:4px">Precio especial</div>'
+    +'<div class="monto">Q '+d.totalFinal.toFixed(2)+'</div>'
+    +'<div class="label">IVA incluido</div>'
+    +'</div>'
+    +'<div class="incluye">'
+    +'<h3>Incluye:</h3>'
+    +d.moItems.map(function(m){return '<div class="item"><span class="check">&#10003;</span>'+m.con+'</div>';}).join('')
+    +d.repItems.map(function(r){return '<div class="item"><span class="check">&#10003;</span>'+r.nom+'</div>';}).join('')
+    +'</div>'
+    +'<div class="footer">'
+    +'Tel: '+(cfg.telefono||'---')+' | '+(cfg.direccion||'')+'<br>'
+    +'NIT: '+(cfg.nit||'---')
+    +'</div>'
+    +'</div>'
+    +'</body></html>';
+  w.document.write(html);w.document.close();setTimeout(function(){w.print();},400);
+}
+
+// ---- DASHBOARD FLOTA ----
+async function renderFlota(content, actions) {
+  var contratos=await dbGetAll('contratos_flota');
+  var clientes=await dbGetAll('clientes');
+  var vehiculos=await dbGetAll('vehiculos');
+  var ordenes=await dbGetAll('ordenes');
+  var hoy=new Date();hoy.setHours(0,0,0,0);
+
+  actions.innerHTML='<button class="btn btn-primary" onclick="modalContratoFlota()">+ Nuevo contrato</button>'
+    +' <button class="btn btn-secondary" onclick="verListaContratos()">Ver lista</button>';
+
+  var activos=contratos.filter(function(ct){return ct.estado==='activo';});
+  var ingresosMes=activos.reduce(function(a,ct){return a+(ct.tarifaMensual||0);},0);
+  var totalVehs=activos.reduce(function(a,ct){return a+(ct.vehiculosIds?ct.vehiculosIds.length:0);},0);
+
+  // Vehiculos de flota con alertas
+  var todosVehsFlota=[];
+  activos.forEach(function(ct){
+    (ct.vehiculosIds||[]).forEach(function(vid){
+      var v=vehiculos.find(function(x){return x.id===vid;});
+      if(v){
+        var dias=v.proximoServicio?Math.round((new Date(v.proximoServicio+'T00:00:00')-hoy)/86400000):null;
+        todosVehsFlota.push({veh:v,contrato:ct,diasServicio:dias});
+      }
+    });
+  });
+
+  var vencidos=todosVehsFlota.filter(function(x){return x.diasServicio!==null&&x.diasServicio<0;});
+  var proximos7=todosVehsFlota.filter(function(x){return x.diasServicio!==null&&x.diasServicio>=0&&x.diasServicio<=7;});
+  var otsMes=ordenes.filter(function(o){return o.fecha&&o.fecha.startsWith(today().slice(0,7));});
+  var facturacionMes=otsMes.reduce(function(a,o){return a+(o.totalConIVA||0);},0);
+
+  // Tarjetas por contrato
+  var cards=activos.map(function(ct){
+    var cli=clientes.find(function(c){return c.id===ct.clienteId;});
+    var vehs=(ct.vehiculosIds||[]).map(function(vid){return vehiculos.find(function(v){return v.id===vid;});}).filter(Boolean);
+    var vVenc=vehs.filter(function(v){return v.proximoServicio&&Math.round((new Date(v.proximoServicio+'T00:00:00')-hoy)/86400000)<0;});
+    var vProx=vehs.filter(function(v){return v.proximoServicio&&Math.round((new Date(v.proximoServicio+'T00:00:00')-hoy)/86400000)>=0&&Math.round((new Date(v.proximoServicio+'T00:00:00')-hoy)/86400000)<=7;});
+    return '<div class="card" style="border-left:3px solid var(--'+(vVenc.length>0?'red':vProx.length>0?'amber':'green')+')">'
+      +'<div class="card-header"><span class="card-title">'+ct.nombre+'</span>'
+      +'<span class="badge badge-'+(vVenc.length>0?'red':vProx.length>0?'amber':'green')+'">'
+      +(vVenc.length>0?vVenc.length+' vencidos':vProx.length>0?vProx.length+' proximos':'Al dia')+'</span></div>'
+      +'<div style="font-size:12px;color:var(--text2);margin-bottom:8px">'+(cli?cli.nombre:'---')+' | '+ct.tipoContrato+'</div>'
+      +'<div class="stat-grid" style="grid-template-columns:repeat(3,1fr)">'
+      +'<div class="stat-card"><div class="stat-label">Vehiculos</div><div class="stat-value" style="font-size:16px">'+vehs.length+'</div></div>'
+      +'<div class="stat-card stat-green"><div class="stat-label">Tarifa/mes</div><div class="stat-value" style="font-size:14px">'+fmt(ct.tarifaMensual||0)+'</div></div>'
+      +'<div class="stat-card '+(vVenc.length>0?'stat-red':vProx.length>0?'stat-amber':'')+'"><div class="stat-label">Prox. servicio</div><div class="stat-value" style="font-size:14px">'+(vVenc.length>0?vVenc.length+' venc.':vProx.length>0?vProx.length+' prox.':'OK')+'</div></div>'
+      +'</div>'
+      +'<div style="display:flex;gap:6px;margin-top:6px">'
+      +'<button class="btn btn-sm btn-blue" onclick="verDetalleContrato('+ct.id+')">Detalle</button>'
+      +'<button class="btn btn-sm btn-green" onclick="programarMantenimientoFlota('+ct.id+')">Programar</button>'
+      +'</div></div>';
+  }).join('');
+
+  content.innerHTML='<div class="section-title">Dashboard de Flota</div>'
+    +'<div class="stat-grid">'
+    +'<div class="stat-card stat-green"><div class="stat-label">Contratos activos</div><div class="stat-value">'+activos.length+'</div></div>'
+    +'<div class="stat-card stat-green"><div class="stat-label">Ingreso mensual flota</div><div class="stat-value">'+fmt(ingresosMes)+'</div></div>'
+    +'<div class="stat-card stat-blue"><div class="stat-label">Vehiculos en contrato</div><div class="stat-value">'+totalVehs+'</div></div>'
+    +'<div class="stat-card stat-red"><div class="stat-label">Servicios vencidos</div><div class="stat-value">'+vencidos.length+'</div></div>'
+    +'<div class="stat-card stat-amber"><div class="stat-label">Proximos 7 dias</div><div class="stat-value">'+proximos7.length+'</div></div>'
+    +'<div class="stat-card stat-green"><div class="stat-label">Facturacion mes</div><div class="stat-value" style="font-size:14px">'+fmt(facturacionMes)+'</div></div>'
+    +'</div>'
+    +(vencidos.length?'<div class="alert alert-red" style="font-size:12px"><strong>'+vencidos.length+' vehiculos con servicio vencido:</strong> '+vencidos.map(function(x){return x.veh.placa;}).join(', ')+'</div>':'')
+    +(proximos7.length?'<div class="alert alert-amber" style="font-size:12px"><strong>Proximos 7 dias:</strong> '+proximos7.map(function(x){return x.veh.placa+' ('+x.diasServicio+'d)';}).join(', ')+'</div>':'')
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px">'
+    +(cards||'<div class="text-muted text-center" style="padding:20px">Sin contratos activos. Crea uno con el boton + Nuevo contrato</div>')
+    +'</div>';
+}
+
+async function verListaContratos(){
+  var contratos=await dbGetAll('contratos_flota');
+  var clientes=await dbGetAll('clientes');
+  var vehiculos=await dbGetAll('vehiculos');
+  var rows=contratos.map(function(ct){
+    var cli=clientes.find(function(c){return c.id===ct.clienteId;});
+    var vn=ct.vehiculosIds?ct.vehiculosIds.length:0;
+    return '<tr>'
+      +'<td><strong>'+ct.nombre+'</strong></td>'
+      +'<td>'+(cli?cli.nombre:'---')+'</td>'
+      +'<td><span class="badge badge-gray">'+(ct.tipoContrato||'---')+'</span></td>'
+      +'<td class="td-mono">'+vn+' vehs</td>'
+      +'<td class="td-mono">'+fmt(ct.tarifaMensual||0)+'</td>'
+      +'<td>'+fechaLegible(ct.fechaFin)+'</td>'
+      +'<td><span class="badge badge-'+(ct.estado==='activo'?'green':'gray')+'">'+ct.estado+'</span></td>'
+      +'<td><div class="flex gap-1">'
+      +'<button class="btn btn-sm btn-blue" onclick="cerrarModal(\'lista_ct\');verDetalleContrato('+ct.id+')">Detalle</button>'
+      +'<button class="btn btn-sm btn-secondary" onclick="cerrarModal(\'lista_ct\');modalContratoFlota('+ct.id+')">Editar</button>'
+      +'</div></td></tr>';
+  }).join('');
+  openModal('lista_ct','Todos los contratos de flota',
+    '<div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Cliente</th><th>Tipo</th><th>Flota</th><th>Tarifa</th><th>Vence</th><th>Estado</th><th>Acciones</th></tr></thead>'
+    +'<tbody>'+(rows||'<tr><td colspan="8" class="text-center text-muted" style="padding:16px">Sin contratos</td></tr>')+'</tbody></table></div>',
+    function(){cerrarModal('lista_ct');},false);
+}
+
+// ================================================================
+// MODULO B v3.3
+// 1. Log de auditoria (solo admin)
+// 2. Inline creation mejorado (cliente+vehiculo en OT)
+// 3. Dashboard Facturas, Cotizaciones, Budget
+// 4. Servicios externos (torno, rectificadora, etc.)
+// 5. RRHH: capacitacion y aumentos salariales
+// ================================================================
+
+// ================================================================
+// 1. AUDITORIA LOG
+// ================================================================
+async function logAuditoria(accion, modulo, descripcion, datos) {
+  try {
+    var u = sesionActual || {};
+    await dbAdd('auditoria', {
+      fecha: nowTs(),
+      usuario: u.username || 'sistema',
+      nombre: u.nombre || '',
+      accion: accion,
+      modulo: modulo,
+      descripcion: descripcion,
+      datos: datos ? JSON.stringify(datos).slice(0,500) : '',
+      ip: 'local',
+      createdAt: nowTs()
+    });
+  } catch(e) {}
+}
+
 async function renderAuditoria(content, actions) {
   if (!soloAdmin()) { content.innerHTML='<div class="alert alert-red">Solo administradores</div>'; return; }
   var logs = await dbGetAll('auditoria');
@@ -1326,4 +1642,1181 @@ async function renderServiciosExternos(content, actions) {
     +'</table></div></div>';
 }
 
-async
+async function modalSrvExterno(id) {
+  var s = id ? await dbGet('servicios_externos',id) : {};
+  var proveedores = await dbGetAll('proveedores');
+  var ordenes = await dbGetAll('ordenes');
+  var provOpts = '<option value="">Sin proveedor</option>'
+    +proveedores.map(function(p){return '<option value="'+p.id+'"'+(s.proveedorId===p.id?' selected':'')+'>'+p.empresa+'</option>';}).join('');
+  var otOpts = '<option value="">Sin OT</option>'
+    +ordenes.filter(function(o){return o.estado!=='entregada';}).map(function(o){
+      return '<option value="'+o.noOT+'"'+(s.noOrden===o.noOT?' selected':'')+'>'+o.noOT+' - '+(o.placa||o.clienteNombre||'')+'</option>';
+    }).join('');
+  var tipos = ['Torno','Rectificadora','Soldadura','Electronica','Pintura','Latoneria','Vulcanizado','Alineacion y balanceo','Otro'];
+  var formasEntrega = ['Entregamos en taller del proveedor','Proveedor recoge en nuestro taller','Mensajero propio','Guatex/Cargo Expreso','Otro'];
+
+  openModal('srvext_m', id?'Editar Servicio Externo':'Nuevo Servicio Externo',
+    '<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Tipo de servicio *</label>'
+    +'<select id="se_tipo">'+tipos.map(function(t){return '<option value="'+t+'"'+(s.tipoServicio===t?' selected':'')+'>'+t+'</option>';}).join('')+'</select></div>'
+    +'<div class="form-group"><label>Fecha de envio</label><input id="se_fec" type="date" value="'+(s.fecha||today())+'"></div>'
+    +'</div>'
+    +'<div class="form-group"><label>Descripcion de lo que se envia</label><textarea id="se_desc" style="min-height:60px" placeholder="Disco de freno rayado, bloque de motor, etc.">'+(s.descripcion||'')+'</textarea></div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Proveedor del servicio *</label><select id="se_prov">'+provOpts+'</select></div>'
+    +'<div class="form-group"><label>Responsable (nombre)</label><input id="se_resp" value="'+(s.responsable||'')+'" placeholder="Quien atiende en el proveedor"></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Forma de entrega al proveedor</label>'
+    +'<select id="se_fent">'+formasEntrega.map(function(f){return '<option value="'+f+'"'+(s.formaEntrega===f?' selected':'')+'>'+f+'</option>';}).join('')+'</select></div>'
+    +'<div class="form-group"><label>Forma de recogida</label>'
+    +'<select id="se_frec">'+formasEntrega.map(function(f){return '<option value="'+f+'"'+(s.formaRecogida===f?' selected':'')+'>'+f+'</option>';}).join('')+'</select></div>'
+    +'</div>'
+    +'<div class="form-row form-row-3">'
+    +'<div class="form-group"><label>Costo del servicio (Q)</label><input id="se_cos" type="number" value="'+(s.costo||'')+'" step="0.01" oninput="calcTotSrvExt()"></div>'
+    +'<div class="form-group"><label>% Ganancia al cliente</label><input id="se_gan" type="number" value="'+(s.porcentajeGanancia||20)+'" min="0" max="200" oninput="calcTotSrvExt()"><div class="form-hint">Se cobra al cliente</div></div>'
+    +'<div class="form-group"><label>Total a cobrar al cliente (Q)</label><input id="se_tot" type="number" value="'+(s.costoTotal||'')+'" step="0.01" readonly style="background:var(--bg4)"></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Fecha estimada de entrega</label><input id="se_fent2" type="date" value="'+(s.fechaEntrega||'')+'"></div>'
+    +'<div class="form-group"><label>Estado</label>'
+    +'<select id="se_est"><option value="pendiente"'+(s.estado==='pendiente'||!s.estado?' selected':'')+'>Pendiente</option>'
+    +'<option value="enviado"'+(s.estado==='enviado'?' selected':'')+'>Enviado al proveedor</option>'
+    +'<option value="en_proceso"'+(s.estado==='en_proceso'?' selected':'')+'>En proceso</option>'
+    +'<option value="listo"'+(s.estado==='listo'?' selected':'')+'>Listo para recoger</option>'
+    +'<option value="entregado"'+(s.estado==='entregado'?' selected':'')+'>Entregado/Completado</option></select></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>OT relacionada</label><select id="se_ot">'+otOpts+'</select></div>'
+    +'<div class="form-group"><label>Notas</label><input id="se_not" value="'+(s.notas||'')+'" placeholder="Observaciones"></div>'
+    +'</div>',
+    async function(){
+      var tipo=document.getElementById('se_tipo').value;
+      var costo=parseFloat(document.getElementById('se_cos').value)||0;
+      if(!tipo||!costo){toast('Tipo y costo son requeridos','red');return;}
+      var pId=parseInt(document.getElementById('se_prov').value)||null;
+      var prov=proveedores.find(function(p){return p.id===pId;});
+      var obj={tipoServicio:tipo,descripcion:$v('se_desc').trim(),
+        proveedorId:pId,proveedor:prov?prov.empresa:'',
+        responsable:$v('se_resp').trim(),
+        formaEntrega:$v('se_fent'),formaRecogida:$v('se_frec'),
+        fecha:$v('se_fec'),fechaEntrega:$v('se_fent2'),
+        costo:costo,porcentajeGanancia:parseFloat($v('se_gan'))||20,
+        costoTotal:parseFloat(document.getElementById('se_tot').value)||costo,
+        estado:$v('se_est'),noOrden:$v('se_ot'),
+        notas:$v('se_not').trim(),updatedAt:nowTs()};
+      if(id){obj.id=id;await dbPut('servicios_externos',obj);}
+      else{obj.createdAt=nowTs();await dbAdd('servicios_externos',obj);
+        await dbAdd('costos',{fecha:obj.fecha,categoria:'Servicio externo - '+obj.tipoServicio,
+          descripcion:obj.descripcion,monto:costo,proveedor:obj.proveedor,recurrente:false,createdAt:nowTs()});
+      }
+      cerrarModal('srvext_m');toast(id?'Actualizado':'Registrado');await navTo('servicios_externos');
+    },true);
+  setTimeout(function(){
+    calcTotSrvExt();
+    agregarBotonesInline([{selectId:'se_prov',tipo:'proveedor'}]);
+  },100);
+}
+
+function calcTotSrvExt(){
+  var c=parseFloat((document.getElementById('se_cos')||{}).value)||0;
+  var g=parseFloat((document.getElementById('se_gan')||{}).value)||20;
+  var el=document.getElementById('se_tot');
+  if(el) el.value=(c*(1+g/100)).toFixed(2);
+}
+
+// ================================================================
+// 5. RRHH: CAPACITACION Y AUMENTOS SALARIALES
+// ================================================================
+async function renderCapacitacion(content, actions) {
+  var caps = await dbGetAll('capacitaciones');
+  var empleados = await dbGetAll('empleados');
+  actions.innerHTML = '<button class="btn btn-primary" onclick="modalCapacitacion()">+ Registrar capacitacion</button>';
+
+  var rows = caps.sort(function(a,b){return (a.fecha||'')<(b.fecha||'')?1:-1;}).map(function(c){
+    var emp = empleados.find(function(e){return e.id===c.empleadoId;});
+    return '<tr>'
+      +'<td>'+(emp?emp.nombre:c.empleadoNombre||'---')+'</td>'
+      +'<td><strong>'+c.curso+'</strong></td>'
+      +'<td><span class="badge badge-gray">'+(c.tipo||'Interna')+'</span></td>'
+      +'<td>'+fechaLegible(c.fecha)+'</td>'
+      +'<td>'+( c.duracion||'---')+'</td>'
+      +'<td>'+(c.grado||'---')+'</td>'
+      +'<td>'+(c.institucion||'---')+'</td>'
+      +'<td class="td-mono text-red">'+(c.costo>0?fmt(c.costo):'---')+'</td>'
+      +'<td><div class="flex gap-1">'
+      +'<button class="btn btn-sm btn-secondary" onclick="modalCapacitacion('+c.id+')">Editar</button>'
+      +'<button class="btn btn-sm btn-danger" onclick="borrarCap('+c.id+')">X</button>'
+      +'</div></td></tr>';
+  }).join('');
+
+  // Resumen por empleado
+  var resumen = {};
+  caps.forEach(function(c){
+    if(!resumen[c.empleadoNombre]) resumen[c.empleadoNombre]=0;
+    resumen[c.empleadoNombre]++;
+  });
+
+  content.innerHTML = '<div class="section-title">Capacitaciones y Entrenamientos</div>'
+    +'<div class="section-sub">Seguimiento del desarrollo profesional del equipo</div>'
+    +'<div class="card" style="padding:10px"><div class="table-wrap"><table>'
+    +'<thead><tr><th>Empleado</th><th>Curso</th><th>Tipo</th><th>Fecha</th><th>Duracion</th><th>Grado</th><th>Institucion</th><th>Costo</th><th>Acciones</th></tr></thead>'
+    +'<tbody>'+(rows||'<tr><td colspan="9" class="text-center text-muted" style="padding:16px">Sin capacitaciones registradas</td></tr>')+'</tbody>'
+    +'</table></div></div>';
+}
+
+async function modalCapacitacion(id) {
+  var empleados = await dbGetAll('empleados');
+  var c = id ? await dbGet('capacitaciones',id) : {};
+  var empOpts = empleados.filter(function(e){return e.activo!==false;}).map(function(e){
+    return '<option value="'+e.id+'"'+(c.empleadoId===e.id?' selected':'')+'>'+e.nombre+'</option>';
+  }).join('');
+  var tipos=['Interna','Externa','En linea','Certificacion','Taller','Seminario'];
+  var grados=['Aprobado','Reprobado','En progreso','Certificado obtenido','Menccion de honor'];
+
+  openModal('cap_m', id?'Editar Capacitacion':'Nueva Capacitacion',
+    '<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Empleado *</label><select id="ca_emp">'+empOpts+'</select></div>'
+    +'<div class="form-group"><label>Nombre del curso *</label><input id="ca_cur" value="'+(c.curso||'')+'" placeholder="Nombre del curso o entrenamiento"></div>'
+    +'</div>'
+    +'<div class="form-row form-row-3">'
+    +'<div class="form-group"><label>Tipo</label><select id="ca_tip">'+tipos.map(function(t){return '<option value="'+t+'"'+(c.tipo===t?' selected':'')+'>'+t+'</option>';}).join('')+'</select></div>'
+    +'<div class="form-group"><label>Fecha de inicio</label><input id="ca_fec" type="date" value="'+(c.fecha||today())+'"></div>'
+    +'<div class="form-group"><label>Duracion</label><input id="ca_dur" value="'+(c.duracion||'')+'" placeholder="8 horas, 3 dias, 1 semana..."></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Institucion / Instructor</label><input id="ca_ins" value="'+(c.institucion||'')+'" placeholder="Nombre de la institucion"></div>'
+    +'<div class="form-group"><label>Grado obtenido</label><select id="ca_gra">'+grados.map(function(g){return '<option value="'+g+'"'+(c.grado===g?' selected':'')+'>'+g+'</option>';}).join('')+'</select></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Costo de la capacitacion (Q)</label><input id="ca_cos" type="number" value="'+(c.costo||0)+'" step="0.01" min="0"></div>'
+    +'<div class="form-group"><label>Numero de diploma/certificado</label><input id="ca_cert" value="'+(c.noCertificado||'')+'" placeholder="No. de certificado si aplica"></div>'
+    +'</div>'
+    +'<div class="form-group"><label>Temas cubiertos / Descripcion</label><textarea id="ca_tem" style="min-height:60px">'+(c.temas||'')+'</textarea></div>',
+    async function(){
+      var empId=parseInt($v('ca_emp'));
+      var cur=$v('ca_cur').trim();
+      if(!empId||!cur){toast('Empleado y curso requeridos','red');return;}
+      var emp=empleados.find(function(e){return e.id===empId;});
+      var obj={empleadoId:empId,empleadoNombre:emp?emp.nombre:'',curso:cur,
+        tipo:$v('ca_tip'),fecha:$v('ca_fec'),duracion:$v('ca_dur').trim(),
+        institucion:$v('ca_ins').trim(),grado:$v('ca_gra'),
+        costo:$n('ca_cos'),noCertificado:$v('ca_cert').trim(),
+        temas:$v('ca_tem').trim(),updatedAt:nowTs()};
+      if(id){obj.id=id;await dbPut('capacitaciones',obj);}else{obj.createdAt=nowTs();await dbAdd('capacitaciones',obj);}
+      cerrarModal('cap_m');toast(id?'Actualizada':'Registrada');await navTo('capacitacion');
+    },true);
+}
+async function borrarCap(id){if(!confirm('Eliminar?'))return;await dbDelete('capacitaciones',id);await navTo('capacitacion');}
+
+// --- Aumentos Salariales ---
+async function renderAumentos(content, actions) {
+  if(!soloAdmin()){content.innerHTML='<div class="alert alert-red">Solo administradores</div>';return;}
+  var empleados = await dbGetAll('empleados');
+  var aumentos  = await dbGetAll('aumentos_salariales');
+  actions.innerHTML = '<button class="btn btn-primary" onclick="modalAumento()">+ Proponer aumento</button>'
+    +' <button class="btn btn-secondary" onclick="aplicarAumentosAprobados()">Aplicar aprobados</button>';
+
+  var activos = empleados.filter(function(e){return e.activo!==false;});
+  var hoy2 = new Date(); hoy2.setHours(0,0,0,0);
+
+  var rows = activos.map(function(e){
+    var fi = new Date((e.fechaIngreso||today())+'T00:00:00');
+    var aniosComp = Math.floor((hoy2-fi)/(365.25*86400000));
+    var ultimoAum = aumentos.filter(function(a){return a.empleadoId===e.id&&a.aplicado;}).sort(function(a,b){return a.fecha<b.fecha?1:-1;})[0];
+    var pendAum = aumentos.find(function(a){return a.empleadoId===e.id&&!a.aplicado&&a.estado==='aprobado';});
+    return '<tr>'
+      +'<td><strong>'+e.nombre+'</strong><div style="font-size:10px;color:var(--text3)">'+(e.cargo||'')+'</div></td>'
+      +'<td class="td-mono">'+fmt(e.salarioBase||0)+'</td>'
+      +'<td>'+aniosComp+' anio(s)</td>'
+      +'<td>'+(ultimoAum?fechaLegible(ultimoAum.fecha)+' (+'+( ultimoAum.porcentaje||0).toFixed(1)+'%)':'Sin aumentos')+'</td>'
+      +'<td>'+(pendAum?'<span class="badge badge-green">Aprobado: +'+( pendAum.porcentaje||0).toFixed(1)+'% = '+fmt((e.salarioBase||0)*(1+(pendAum.porcentaje||0)/100))+'</span>':'<span class="badge badge-gray">Sin pendiente</span>')+'</td>'
+      +'<td><button class="btn btn-sm btn-primary" onclick="modalAumento('+e.id+')">Proponer aumento</button></td>'
+      +'</tr>';
+  }).join('');
+
+  content.innerHTML = '<div class="section-title">Aumentos Salariales</div>'
+    +'<div class="section-sub">Control de incrementos salariales. Solo el administrador puede aprobar y aplicar.</div>'
+    +'<div class="alert alert-blue" style="font-size:11px">El aumento salarial NO es una obligacion legal pero es una herramienta de retencion de talento. Se aplica cuando el administrador lo autoriza.</div>'
+    +'<div class="card" style="padding:10px"><div class="table-wrap"><table>'
+    +'<thead><tr><th>Empleado</th><th>Salario actual</th><th>Antiguedad</th><th>Ultimo aumento</th><th>Aumento pendiente</th><th>Accion</th></tr></thead>'
+    +'<tbody>'+(rows||'<tr><td colspan="6" class="text-center text-muted" style="padding:16px">Sin empleados</td></tr>')+'</tbody>'
+    +'</table></div></div>';
+}
+
+async function modalAumento(empId) {
+  var empleados = await dbGetAll('empleados');
+  var activos = empleados.filter(function(e){return e.activo!==false;});
+  var opts = activos.map(function(e){return '<option value="'+e.id+'"'+(empId===e.id?' selected':'')+'>'+e.nombre+' - '+fmt(e.salarioBase||0)+'</option>';}).join('');
+
+  openModal('aum_m','Proponer Aumento Salarial',
+    '<div class="alert alert-amber" style="font-size:11px">Solo el administrador puede aprobar y aplicar aumentos. El cambio no afecta el salario hasta que se aplique.</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Empleado *</label><select id="au_emp" onchange="calcPreviewAum()">'+opts+'</select></div>'
+    +'<div class="form-group"><label>Porcentaje de aumento (%) *</label><input id="au_pct" type="number" value="5" min="0.1" max="100" step="0.1" oninput="calcPreviewAum()"></div>'
+    +'</div>'
+    +'<div id="au_preview" style="background:var(--bg3);border-radius:6px;padding:12px;margin-bottom:10px"></div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Fecha efectiva</label><input id="au_fec" type="date" value="'+today()+'"></div>'
+    +'<div class="form-group"><label>Motivo del aumento</label><input id="au_mot" placeholder="Aniversario, evaluacion, ajuste..."></div>'
+    +'</div>'
+    +'<div class="form-group"><label>Estado</label>'
+    +'<select id="au_est"><option value="aprobado">Aprobado (se aplicara al confirmar)</option>'
+    +'<option value="propuesto">Solo propuesta (requiere aprobacion posterior)</option></select></div>',
+    async function(){
+      var empId2=parseInt($v('au_emp'));
+      var pct=parseFloat($v('au_pct'))||0;
+      if(!empId2||!pct){toast('Empleado y porcentaje requeridos','red');return;}
+      var emp=empleados.find(function(e){return e.id===empId2;});
+      var salNuevo=parseFloat(((emp.salarioBase||0)*(1+pct/100)).toFixed(2));
+      var obj={empleadoId:empId2,empleadoNombre:emp?emp.nombre:'',
+        salarioAnterior:emp.salarioBase||0,porcentaje:pct,salarioNuevo:salNuevo,
+        fecha:$v('au_fec'),motivo:$v('au_mot').trim(),
+        estado:$v('au_est'),aplicado:false,
+        autorizadoPor:sesionActual?sesionActual.username:'admin',
+        createdAt:nowTs()};
+      await dbAdd('aumentos_salariales',obj);
+      cerrarModal('aum_m');
+      toast('Aumento registrado. Usa "Aplicar aprobados" para hacerlo efectivo.');
+      await navTo('aumentos');
+    },true);
+  setTimeout(calcPreviewAum,100);
+}
+
+async function calcPreviewAum(){
+  var empId=parseInt($v('au_emp'));
+  var pct=parseFloat($v('au_pct'))||0;
+  var el=document.getElementById('au_preview');if(!el)return;
+  if(!empId||!pct){el.innerHTML='';return;}
+  var emp=await dbGet('empleados',empId);
+  if(!emp){el.innerHTML='';return;}
+  var salAnt=emp.salarioBase||0;
+  var salNuevo=parseFloat((salAnt*(1+pct/100)).toFixed(2));
+  var diff=salNuevo-salAnt;
+  el.innerHTML='<div style="font-size:13px">'
+    +'<div style="display:flex;justify-content:space-between;padding:3px 0"><span>Salario actual:</span><span class="td-mono">'+fmt(salAnt)+'</span></div>'
+    +'<div style="display:flex;justify-content:space-between;padding:3px 0;color:var(--green)"><span>Incremento ('+pct.toFixed(1)+'%):</span><span class="td-mono">+ '+fmt(diff)+'</span></div>'
+    +'<div style="display:flex;justify-content:space-between;padding:5px 0;font-weight:700;font-size:14px;border-top:1px solid var(--border);margin-top:4px"><span>Nuevo salario:</span><span class="td-mono text-green">'+fmt(salNuevo)+'</span></div>'
+    +'</div>';
+}
+
+async function aplicarAumentosAprobados(){
+  if(!soloAdmin()){toast('Solo administradores','red');return;}
+  var aumentos=await dbGetAll('aumentos_salariales');
+  var pendientes=aumentos.filter(function(a){return a.estado==='aprobado'&&!a.aplicado;});
+  if(!pendientes.length){toast('Sin aumentos aprobados pendientes de aplicar','amber');return;}
+  if(!confirm('Aplicar '+pendientes.length+' aumento(s) salarial(es)? Esta accion modifica los salarios.'))return;
+  var count=0;
+  for(var i=0;i<pendientes.length;i++){
+    var a=pendientes[i];
+    var emp=await dbGet('empleados',a.empleadoId);
+    if(emp){
+      emp.salarioBase=a.salarioNuevo;
+      emp.updatedAt=nowTs();
+      await dbPut('empleados',emp);
+      a.aplicado=true;a.fechaAplicacion=nowTs();
+      await dbPut('aumentos_salariales',a);
+      count++;
+    }
+  }
+  toast(count+' aumentos aplicados correctamente');
+  await navTo('aumentos');
+}
+
+
+function actualizarTopbarUsuario() {
+  var tui = document.getElementById('topbar-user-info');
+  var tun = document.getElementById('topbar-username');
+  if (!sesionActual) return;
+  if (tui) tui.style.display = 'flex';
+  var perfilLabels = {admin:'Admin',supervisor:'Supervisor',operador:'Operador'};
+  if (tun) tun.textContent = (sesionActual.nombre||sesionActual.username) + ' (' + (perfilLabels[sesionActual.perfil]||sesionActual.perfil) + ')';
+}
+
+function abrirMenuUsuario() {
+  if (!sesionActual) return;
+  var perfilLabels = {admin:'Administrador',supervisor:'Supervisor',operador:'Operador'};
+  openModal('menuUsr', 'Mi cuenta: '+sesionActual.nombre,
+    '<div style="text-align:center;padding:10px 0 16px">'
+    + '<div style="font-size:28px;background:var(--bg3);width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;border:2px solid var(--border2)">&#128100;</div>'
+    + '<div style="font-size:16px;font-weight:700">'+sesionActual.nombre+'</div>'
+    + '<div style="font-size:12px;color:var(--text2)">@'+sesionActual.username+' &mdash; <span class="badge badge-'+(sesionActual.perfil==='admin'?'red':sesionActual.perfil==='supervisor'?'amber':'blue')+'">'+( perfilLabels[sesionActual.perfil]||sesionActual.perfil)+'</span></div>'
+    + '</div>'
+    + '<div style="display:grid;gap:8px">'
+    + '<button class="btn btn-secondary" onclick="irConfigDesdeMenu()" style="width:100%">&#9881; Configuracion del sistema</button>'
+    + '<button class="btn btn-secondary" onclick="temaDesdeMenu()" style="width:100%">Cambiar tema</button>'
+    + '<button class="btn btn-secondary" onclick="cerrarModal(\'menuUsr\');abrirCambiarPassword()" style="width:100%;background:var(--bg3)">🔒 Cambiar contrase\u00f1a</button>'
+    + '<button class="btn btn-danger" onclick="cerrarModal(\'menuUsr\');logout()" style="width:100%">&#128275; Cerrar sesion</button>'
+    + '</div>',
+    function(){cerrarModal('menuUsr');}, false);
+}
+
+
+function irConfigDesdeMenu() { cerrarModal('menuUsr'); navTo('config'); }
+function temaDesdeMenu() { cerrarModal('menuUsr'); abrirSelectorTema(); }
+
+// ================================================================
+// MOD C - 5 mejoras correlacionadas
+// 1. Facturas FEL - validacion NIT + numero correlativo
+// 2. WhatsApp logs - filtros y acciones
+// 3. Recepciones - inline cliente+vehiculo
+// 4. Cotizaciones -> OT directo
+// 5. Reporte general - seleccion de rubros
+// ================================================================
+
+// ================================================================
+// 1. FACTURAS: FEL correlativo + validacion NIT en tiempo real
+// ================================================================
+
+async function modalFactura(id, otData) {
+  var clientes = await dbGetAll('clientes');
+  var facturasCfg = await dbGet('config','facturas_cfg') || {};
+  var cfg = await dbGet('config','taller') || {};
+  var felCfg = await dbGet('config','fel') || {};
+  var f = id ? await dbGet('facturas', id) : {};
+  var od = otData || {};
+
+  // Calcular siguiente numero correlativo FEL
+  var todasFacs = await dbGetAll('facturas');
+  var prefijo = facturasCfg.serie || 'A';
+  var ultimoNum = todasFacs.reduce(function(max, fac) {
+    if (fac.serieNumero && fac.serie === prefijo) {
+      return Math.max(max, fac.serieNumero || 0);
+    }
+    return max;
+  }, 0);
+  var sigNumero = ultimoNum + 1;
+  var noFelSugerido = id ? (f.noFactura || '') : (prefijo + '-' + String(sigNumero).padStart(6, '0'));
+
+  // Lineas desde OT si viene de ahi
+  var lineasOT = [];
+  if (!id && od.manoObra) {
+    (od.manoObra||[]).forEach(function(m){ lineasOT.push({desc:'Mano de obra: '+m.concepto, qty:m.horas, unit:m.tarifa, desc_pct:m.descuento||0, tipo:'mo'}); });
+    (od.items||[]).forEach(function(i){ lineasOT.push({desc:i.nombre, qty:i.cantidad, unit:i.precio, desc_pct:i.descuento||0, tipo:'rep'}); });
+    (od.otrosCargos||[]).forEach(function(oc){ lineasOT.push({desc:oc.concepto, qty:1, unit:oc.monto, desc_pct:oc.descuento||0, tipo:'otro'}); });
+  }
+  var lineasExist = f.lineas || lineasOT;
+  if (!lineasExist.length) lineasExist = [{desc:'', qty:1, unit:0, desc_pct:0}];
+
+  var cliOpts = '<option value="">Seleccionar cliente...</option>' +
+    clientes.map(function(c){
+      return '<option value="'+c.id+'|'+encodeURIComponent(c.nit||'CF')+'|'+encodeURIComponent(c.nombre)+'|'+encodeURIComponent(c.direccion||'')+'"'
+        +((f.clienteId||od.clienteId)===c.id?' selected':'')+'>'
+        +c.nombre+' - '+(c.nit||'CF')+'</option>';
+    }).join('');
+
+  function lRow(l, i) {
+    var tot = ((l.qty||1)*(l.unit||0)*(1-(l.desc_pct||0)/100)).toFixed(2);
+    return '<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 80px auto;gap:6px;margin-bottom:6px;align-items:center" id="lr'+i+'">'
+      +'<input placeholder="Descripcion" value="'+(l.desc||'')+'" id="ld'+i+'" oninput="calcTotFac();calcLFTotal('+i+')" style="font-size:13px">'
+      +'<input type="number" value="'+(l.qty||1)+'" id="lq'+i+'" step="0.01" min="0" oninput="calcTotFac();calcLFTotal('+i+')" style="font-size:13px">'
+      +'<input type="number" value="'+(l.unit||0)+'" id="lu'+i+'" step="0.01" min="0" oninput="calcTotFac();calcLFTotal('+i+')" style="font-size:13px">'
+      +'<input type="number" value="'+(l.desc_pct||0)+'" id="lp'+i+'" min="0" max="100" oninput="calcTotFac();calcLFTotal('+i+')" style="font-size:13px">'
+      +'<div id="lt'+i+'" style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--green);text-align:right;padding:7px 4px">Q '+tot+'</div>'
+      +'<button class="btn btn-sm btn-danger btn-icon" onclick="document.getElementById(\'lr'+i+'\').remove();calcTotFac()" style="margin-top:0">X</button>'
+      +'</div>';
+  }
+  window._lRow = lRow;
+
+  openModal('fac', id ? 'Editar Factura' : 'Nueva Factura FEL', 
+    // Cabecera FEL
+    '<div class="alert alert-blue" style="font-size:11px">'
+    +(felCfg.habilitado ? '<strong>FEL activo:</strong> '+felCfg.certificadora+' | Ambiente: '+felCfg.ambiente : '<strong>FEL no configurado.</strong> <a onclick="cerrarModal(\'fac\');navTo(\'fel\')" style="cursor:pointer;color:var(--accent)">Configurar FEL</a>')
+    +'</div>'
+    +'<div class="form-row form-row-3">'
+    +'<div class="form-group"><label>No. Factura / Serie FEL *</label>'
+    +'<input id="f_no" value="'+noFelSugerido+'" placeholder="A-000001">'
+    +'<div class="form-hint">Serie: '+prefijo+' | Correlativo: '+sigNumero+'</div></div>'
+    +'<div class="form-group"><label>Fecha *</label>'
+    +'<input id="f_fe" type="date" value="'+(f.fecha||today())+'"></div>'
+    +'<div class="form-group"><label>Forma de pago</label>'
+    +'<select id="f_pa">'
+    +'<option value="efectivo"'+((!f.formaPago||f.formaPago==='efectivo')?' selected':'')+'>Efectivo</option>'
+    +'<option value="transferencia"'+(f.formaPago==='transferencia'?' selected':'')+'>Transferencia</option>'
+    +'<option value="tarjeta"'+(f.formaPago==='tarjeta'?' selected':'')+'>Tarjeta</option>'
+    +'<option value="cheque"'+(f.formaPago==='cheque'?' selected':'')+'>Cheque</option>'
+    +'<option value="credito"'+(f.formaPago==='credito'?' selected':'')+'>Credito</option>'
+    +'</select></div></div>'
+    // Seccion cliente con validacion NIT
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Cliente *</label>'
+    +'<select id="f_cl" onchange="onClienteFacChange()">'+cliOpts+'</select></div>'
+    +'<div class="form-group"><label>NIT del cliente *</label>'
+    +'<div style="display:flex;gap:6px">'
+    +'<input id="f_ni" value="'+(f.nit||od.nit||'CF')+'" placeholder="NIT o CF" oninput="validarNITFacInput()">'
+    +'<button class="btn btn-sm btn-secondary" onclick="validarNITFacInput()" style="white-space:nowrap">Validar</button>'
+    +'</div>'
+    +'<div id="nit_fac_status" style="margin-top:4px;font-size:11px"></div>'
+    +'</div></div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Nombre en factura</label>'
+    +'<input id="f_nombre_fac" value="'+(f.clienteNombreFac||f.clienteNombre||od.clienteNombre||'')+'" placeholder="Nombre como aparece en factura"></div>'
+    +'<div class="form-group"><label>Referencia / OT</label>'
+    +'<input id="f_re" value="'+(f.descripcion||od.noOT||od.descripcion||'')+'" placeholder="No. OT o referencia"></div>'
+    +'</div>'
+    // Lineas
+    +'<div class="divider"></div>'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+    +'<span class="card-title">Lineas de la factura</span>'
+    +'<button class="btn btn-sm btn-secondary" onclick="addLF()">+ Agregar linea</button>'
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 80px auto;gap:6px;margin-bottom:4px">'
+    +'<small class="text-muted">Descripcion</small>'
+    +'<small class="text-muted">Cant.</small>'
+    +'<small class="text-muted">Precio unit. Q</small>'
+    +'<small class="text-muted">Desc.%</small>'
+    +'<small class="text-muted" style="text-align:right">Total Q</small>'
+    +'<span></span></div>'
+    +'<div id="lf_list">'+lineasExist.map(function(l,i){return lRow(l,i);}).join('')+'</div>'
+    +'<div id="fac_tots" style="text-align:right;margin-top:12px"></div>'
+    +(id?'<div class="form-group mt-2"><label><input type="checkbox" id="f_pg"'+(f.pagada?' checked':'')+' style="width:auto;margin-right:6px"> Marcar como pagada</label></div>':''),
+    async function(){
+      // Validar NIT antes de guardar
+      var nit = $v('f_ni').trim() || 'CF';
+      var nitOk = validarNITCompleto ? validarNITCompleto(nit) : {valido:true};
+      if (!nitOk.valido) {
+        var cont = confirm('El NIT "'+nit+'" no paso la validacion SAT (Modulo 11). Guardar de todas formas?');
+        if (!cont) return;
+      }
+      var parts = ($v('f_cl')||'').split('|');
+      var cId = parseInt(parts[0]);
+      var cli = clientes.find(function(c){return c.id===cId;});
+      var lineas = getLF();
+      if (!lineas.length) { toast('Agrega al menos una linea','red'); return; }
+      var subB = lineas.reduce(function(a,l){return a+l.qty*l.unit;},0);
+      var descT = lineas.reduce(function(a,l){return a+l.qty*l.unit*(l.desc_pct||0)/100;},0);
+      var sub = parseFloat((subB-descT).toFixed(2));
+      var iva = parseFloat((sub*0.12).toFixed(2));
+      var tot = parseFloat((sub+iva).toFixed(2));
+      var obj = {
+        noFactura: $v('f_no').trim(),
+        serie: prefijo,
+        serieNumero: sigNumero,
+        fecha: $v('f_fe'),
+        formaPago: $v('f_pa'),
+        clienteId: cId,
+        clienteNombre: cli ? cli.nombre : '',
+        clienteNombreFac: $v('f_nombre_fac').trim() || (cli ? cli.nombre : ''),
+        clienteDireccion: cli ? (cli.direccion||'') : '',
+        nit: nit,
+        descripcion: $v('f_re').trim(),
+        lineas: lineas,
+        subtotalBruto: subB,
+        descuentoTotal: descT,
+        subtotal: sub,
+        iva: iva,
+        total: tot,
+        felHabilitado: felCfg.habilitado || false,
+        felCertificadora: felCfg.certificadora || '',
+        pagada: id ? $c('f_pg') : false,
+        updatedAt: nowTs()
+      };
+      if (!obj.noFactura) { toast('Numero de factura requerido','red'); return; }
+      if (id) { obj.id=id; await dbPut('facturas',obj); }
+      else { obj.createdAt=nowTs(); await dbAdd('facturas',obj); }
+      await logAuditoria(id?'EDITAR':'CREAR','facturas',(id?'Factura editada':'Factura emitida')+': '+(obj.noFactura||''),{total:obj.total});
+      cerrarModal('fac');
+      toast(id ? 'Factura actualizada' : 'Factura emitida');
+      await navTo('facturas');
+    }, true);
+  setTimeout(function(){
+    calcTotFac();
+    agregarBotonesInline([{selectId:'f_cl',tipo:'cliente'}]);
+    // Pre-validar NIT si ya hay uno
+    var nitEl = document.getElementById('f_ni');
+    if (nitEl && nitEl.value && nitEl.value !== 'CF') validarNITFacInput();
+  }, 150);
+}
+
+function onClienteFacChange() {
+  var parts = ($v('f_cl')||'').split('|');
+  var nitEl = document.getElementById('f_ni');
+  var nomEl = document.getElementById('f_nombre_fac');
+  if (nitEl) { nitEl.value = decodeURIComponent(parts[1]||'CF'); validarNITFacInput(); }
+  if (nomEl) nomEl.value = decodeURIComponent(parts[2]||'');
+}
+
+function validarNITFacInput() {
+  var nit = $v('f_ni').trim();
+  var el = document.getElementById('nit_fac_status');
+  if (!el) return;
+  if (!nit || nit.toUpperCase()==='CF') {
+    el.innerHTML = '<span style="color:var(--text3)">Consumidor Final - siempre valido</span>';
+    el.style.background='';
+    return;
+  }
+  var r = validarNITCompleto ? validarNITCompleto(nit) : {valido:true,mensaje:'OK'};
+  if (r.valido) {
+    el.innerHTML = '<span style="color:var(--green)">&#10003; NIT valido (Modulo 11 SAT)</span>';
+  } else {
+    el.innerHTML = '<span style="color:var(--red)">&#10005; ' + (r.error||'NIT invalido') + '</span>';
+  }
+}
+
+// ================================================================
+// 2. WHATSAPP: LOGS CON FILTROS Y ACCIONES
+// ================================================================
+
+async function renderWhatsApp(content, actions) {
+  var cfg      = await dbGet('config','taller') || {};
+  var waCfg    = await dbGet('config','whatsapp') || {};
+  var notif    = await dbGet('config','notificaciones') || {};
+  var clientes  = await dbGetAll('clientes');
+  var vehiculos = await dbGetAll('vehiculos');
+  var hoy2     = new Date(); hoy2.setHours(0,0,0,0);
+  var histMsgs = await dbGetAll('whatsapp_logs');
+  var filtroWA = window._waFiltro || 'todos';
+
+  actions.innerHTML = '<button class="btn btn-primary" onclick="enviarAlertasAutomaticas()">Enviar alertas pendientes</button>';
+
+  // Vehiculos proximos al servicio
+  var diasAlert = waCfg.diasAnticipacion || 7;
+  var proximos = vehiculos.filter(function(v){
+    if (!v.proximoServicio) return false;
+    var d = Math.round((new Date(v.proximoServicio+'T00:00:00')-hoy2)/86400000);
+    return d >= -3 && d <= diasAlert;
+  }).map(function(v){
+    var cli = clientes.find(function(c){return c.id===v.clienteId;});
+    return Object.assign({},v,{clienteObj:cli, diasR:Math.round((new Date(v.proximoServicio+'T00:00:00')-hoy2)/86400000)});
+  });
+
+  // Filtros para logs
+  var filtros = [
+    {k:'todos', label:'Todos ('+histMsgs.length+')'},
+    {k:'enviado', label:'Enviados ('+histMsgs.filter(function(m){return m.estado==='enviado';}).length+')'},
+    {k:'error', label:'Errores ('+histMsgs.filter(function(m){return m.estado==='error';}).length+')'},
+    {k:'leido', label:'Leidos ('+histMsgs.filter(function(m){return m.leido;}).length+')'},
+    {k:'no_leido', label:'No leidos ('+histMsgs.filter(function(m){return !m.leido&&m.estado==='enviado';}).length+')'},
+  ];
+  var filtroHtml = '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">'
+    + filtros.map(function(f){
+      return '<button class="btn btn-sm '+(filtroWA===f.k?'btn-primary':'btn-secondary')+'" onclick="filtrarWA(\''+f.k+'\')">'+f.label+'</button>';
+    }).join('') + '</div>';
+
+  var msgsFiltrados = histMsgs.filter(function(m){
+    if (filtroWA==='enviado') return m.estado==='enviado';
+    if (filtroWA==='error') return m.estado==='error';
+    if (filtroWA==='leido') return m.leido;
+    if (filtroWA==='no_leido') return !m.leido && m.estado==='enviado';
+    return true;
+  }).sort(function(a,b){return (a.fecha||'')<(b.fecha||'')?1:-1;});
+
+  var filasLogs = msgsFiltrados.slice(0,50).map(function(m){
+    return '<tr style="'+(m.leido?'opacity:.6':'')+'"><td style="font-size:10px">'+fechaLegible(m.fecha)+'</td>'
+      +'<td>'+m.destinatario+'</td>'
+      +'<td style="font-size:11px;max-width:200px">'+(m.mensaje||'').slice(0,60)+'...</td>'
+      +'<td><span class="badge badge-'+(m.estado==='enviado'?'green':'red')+'">'+m.estado+'</span></td>'
+      +'<td><div class="flex gap-1">'
+      +(!m.leido?'<button class="btn btn-sm btn-secondary" onclick="marcarMsgLeido('+m.id+')">Leido</button>':'')
+      +'<button class="btn btn-sm btn-danger" onclick="borrarMsgWA('+m.id+')">X</button>'
+      +'</div></td></tr>';
+  }).join('');
+
+  var filasPendientes = proximos.map(function(v){
+    var cli = v.clienteObj;
+    var tel = cli ? (cli.whatsapp||cli.telefono||'') : '';
+    var col = v.diasR<0?'red':v.diasR<=3?'red':v.diasR<=7?'amber':'green';
+    var label = v.diasR<0?'Vencido':v.diasR===0?'Hoy':'En '+v.diasR+'d';
+    return '<tr>'
+      +'<td>'+(cli?cli.nombre:'---')+'</td>'
+      +'<td class="td-mono">'+v.placa+'</td>'
+      +'<td style="font-size:11px">'+v.marca+' '+v.modelo+'</td>'
+      +'<td>'+(v.tipoServicio||'Servicio')+'</td>'
+      +'<td>'+fechaLegible(v.proximoServicio)+'</td>'
+      +'<td><span class="badge badge-'+col+'">'+label+'</span></td>'
+      +'<td style="font-size:11px">'+(tel||'Sin tel.')+'</td>'
+      +'<td><div class="flex gap-1">'
+      +(tel?'<button class="btn btn-sm btn-green" onclick="enviarMsgServicio('+v.clienteId+','+v.id+')">Enviar</button>':'')
+      +'<button class="btn btn-sm btn-secondary" onclick="previewMsg('+v.clienteId+','+v.id+')">Preview</button>'
+      +'</div></td></tr>';
+  }).join('');
+
+  content.innerHTML = '<div class="section-title">WhatsApp Bot</div>'
+    +'<div class="section-sub">Notificaciones automaticas via CallMeBot</div>'
+
+    // Config
+    +'<div class="card"><div class="card-header"><span class="card-title">Configuracion CallMeBot</span>'
+    +'<button class="btn btn-sm btn-primary" onclick="guardarConfigWA()">Guardar</button></div>'
+    +'<div class="alert alert-amber" style="font-size:11px">Cada destinatario debe enviar <strong>"I allow callmebot to send me messages"</strong> al <strong>+34 644 44 00 05</strong> en WhatsApp para activarse.'
+    +' <a href="https://www.callmebot.com" target="_blank" style="color:var(--accent)">Ver doc.</a></div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>API Key CallMeBot</label><input id="wa_apikey" value="'+(waCfg.apiKey||'')+'" placeholder="Tu API key"></div>'
+    +'<div class="form-group"><label>Tu numero (+502XXXXXXXX)</label><input id="wa_numero" value="'+(waCfg.numero||'')+'" placeholder="+50212345678" onblur="onTelBlur(this)"></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Dias de anticipacion</label><input id="wa_dias" type="number" value="'+(waCfg.diasAnticipacion||7)+'" min="1" max="30"></div>'
+    +'<div class="form-group"><label>Nombre del taller en mensajes</label><input id="wa_nombre" value="'+(waCfg.nombreTaller||cfg.nombre||'')+'" placeholder="Nombre del taller"></div>'
+    +'</div>'
+    +'<div class="form-group"><label>Plantilla (usa {cliente}, {placa}, {modelo}, {fecha}, {servicio}, {taller}, {telefono})</label>'
+    +'<textarea id="wa_template" style="min-height:70px">'+(waCfg.template||'Hola {cliente}! Le recordamos que su vehiculo {placa} ({modelo}) tiene programado su *{servicio}* el *{fecha}*. Para reagendar llame a {taller} al {telefono}. Gracias!')+'</textarea></div>'
+    +'</div>'
+
+    // Servicios proximos
+    +'<div class="card"><div class="card-header"><span class="card-title">Servicios proximos ('+proximos.length+')</span></div>'
+    +'<div class="table-wrap"><table>'
+    +'<thead><tr><th>Cliente</th><th>Placa</th><th>Vehiculo</th><th>Servicio</th><th>Fecha</th><th>Estado</th><th>WhatsApp</th><th>Accion</th></tr></thead>'
+    +'<tbody>'+(filasPendientes||'<tr><td colspan="8" class="text-center text-muted" style="padding:12px">Sin servicios proximos</td></tr>')+'</tbody>'
+    +'</table></div></div>'
+
+    // Logs con filtros
+    +'<div class="card"><div class="card-header"><span class="card-title">Historial de mensajes</span>'
+    +'<div class="flex gap-1">'
+    +'<button class="btn btn-sm btn-secondary" onclick="marcarTodosMsgsLeidos()">Todos leidos</button>'
+    +'<button class="btn btn-sm btn-danger" onclick="borrarMsgsLeidos()">Borrar leidos</button>'
+    +'</div></div>'
+    + filtroHtml
+    +'<div class="table-wrap"><table>'
+    +'<thead><tr><th>Fecha</th><th>Destinatario</th><th>Mensaje</th><th>Estado</th><th>Acciones</th></tr></thead>'
+    +'<tbody>'+(filasLogs||'<tr><td colspan="5" class="text-center text-muted" style="padding:12px">Sin mensajes</td></tr>')+'</tbody>'
+    +'</table></div></div>';
+}
+
+function filtrarWA(filtro) { window._waFiltro=filtro; navTo('whatsapp'); }
+
+async function marcarMsgLeido(id) {
+  var m = await dbGet('whatsapp_logs',id);
+  if (m) { m.leido=true; await dbPut('whatsapp_logs',m); }
+  navTo('whatsapp');
+}
+
+async function borrarMsgWA(id) {
+  await dbDelete('whatsapp_logs',id);
+  navTo('whatsapp');
+}
+
+async function marcarTodosMsgsLeidos() {
+  var all = await dbGetAll('whatsapp_logs');
+  for (var i=0;i<all.length;i++) { all[i].leido=true; await dbPut('whatsapp_logs',all[i]); }
+  toast('Todos marcados como leidos');
+  navTo('whatsapp');
+}
+
+async function borrarMsgsLeidos() {
+  if (!confirm('Eliminar todos los mensajes leidos?')) return;
+  var all = await dbGetAll('whatsapp_logs');
+  var leidos = all.filter(function(m){return m.leido;});
+  for (var i=0;i<leidos.length;i++) await dbDelete('whatsapp_logs',leidos[i].id);
+  toast(leidos.length+' mensajes eliminados');
+  navTo('whatsapp');
+}
+
+// ================================================================
+// 3. RECEPCIONES: INLINE CLIENTE+VEHICULO
+// ================================================================
+
+async function modalRecepcion(id) {
+  var clientes  = await dbGetAll('clientes');
+  var vehiculos = await dbGetAll('vehiculos');
+  var empleados = await dbGetAll('empleados');
+  var r = id ? await dbGet('recepciones',id) : {};
+  var nuevoNoREC = id ? (r.noRecepcion||'') : await generarNumeroREC();
+
+  var cliOpts = '<option value="">Seleccionar cliente...</option>'
+    + clientes.map(function(c){
+      return '<option value="'+c.id+'"'+(r.clienteId===c.id?' selected':'')+'>'+c.nombre+'</option>';
+    }).join('');
+
+  var vehOpts = '<option value="">Seleccionar vehiculo...</option>'
+    + vehiculos.map(function(v){
+      return '<option value="'+v.id+'"'+(r.vehiculoId===v.id?' selected':'')+'>'+v.placa+' - '+v.marca+' '+v.modelo+'</option>';
+    }).join('');
+
+  var tecOpts = '<option value="">Seleccionar...</option>'
+    + empleados.filter(function(e){return e.activo!==false;}).map(function(e){
+      return '<option value="'+e.nombre+'"'+(r.tecnico===e.nombre?' selected':'')+'>'+e.nombre+'</option>';
+    }).join('');
+
+  var horaActual = new Date().toTimeString().slice(0,5);
+
+  openModal('rec', id ? 'Editar Recepcion' : 'Recepcion de Vehiculo',
+    '<div class="alert alert-amber" style="font-size:11px">FORMATO DE INGRESO AL TALLER</div>'
+    +'<div class="form-row form-row-3">'
+    +'<div class="form-group"><label>No. Recepcion</label><input id="r_no" value="'+(r.noRecepcion||('REC-'+Date.now().toString(36).toUpperCase()))+'"></div>'
+    +'<div class="form-group"><label>Fecha *</label><input id="r_fec" type="date" value="'+(r.fecha||today())+'"></div>'
+    +'<div class="form-group"><label>Hora</label><input id="r_hor" type="time" value="'+(r.hora||horaActual)+'"></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Cliente *</label>'
+    +'<select id="r_cli" onchange="filtrarVehPorCli()">'+cliOpts+'</select>'
+    +'</div>'
+    +'<div class="form-group"><label>Vehiculo *</label>'
+    +'<select id="r_veh">'+vehOpts+'</select>'
+    +'</div>'
+    +'</div>'
+    +'<div class="form-row form-row-3">'
+    +'<div class="form-group"><label>Km entrada</label><input id="r_km" type="number" value="'+(r.kmEntrada||'')+'" placeholder="45000"></div>'
+    +'<div class="form-group"><label>Combustible</label>'
+    +'<select id="r_com">'
+    +'<option value="E">E - Vacio</option><option value="1/4">1/4</option>'
+    +'<option value="1/2"'+((!r.combustible||r.combustible==='1/2')?' selected':'')+'>1/2</option>'
+    +'<option value="3/4">3/4</option><option value="F">F - Lleno</option>'
+    +'</select></div>'
+    +'<div class="form-group"><label>Tipo servicio</label>'
+    +'<select id="r_tip">'
+    +'<option value="preventivo"'+(r.tipoServicio==='preventivo'?' selected':'')+'>Preventivo</option>'
+    +'<option value="correctivo"'+(r.tipoServicio==='correctivo'?' selected':'')+'>Correctivo</option>'
+    +'<option value="diagnostico"'+(r.tipoServicio==='diagnostico'?' selected':'')+'>Diagnostico</option>'
+    +'<option value="garantia"'+(r.tipoServicio==='garantia'?' selected':'')+'>Garantia</option>'
+    +'</select></div>'
+    +'</div>'
+    +'<div class="form-group"><label>Motivo / Sintomas</label>'
+    +'<textarea id="r_mot" placeholder="Describir el problema o servicio solicitado...">'+(r.motivo||'')+'</textarea></div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Danos preexistentes</label>'
+    +'<textarea id="r_dan" style="min-height:55px" placeholder="Rayones, abolladuras...">'+(r.danosPreexistentes||'')+'</textarea></div>'
+    +'<div class="form-group"><label>Accesorios entregados</label>'
+    +'<textarea id="r_acc" style="min-height:55px">'+(r.accesorios||'')+'</textarea></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Quien entrega el vehiculo</label>'
+    +'<input id="r_ent" value="'+(r.nombreEntrega||'')+'" placeholder="Nombre del propietario o representante"></div>'
+    +'<div class="form-group"><label>Tecnico asignado</label>'
+    +'<select id="r_tec">'+tecOpts+'</select></div>'
+    +'</div>',
+    async function(){
+      var cliId = parseInt($v('r_cli'));
+      var vehId = parseInt($v('r_veh'));
+      if (!cliId || !vehId) { toast('Cliente y vehiculo requeridos','red'); return; }
+      var cli = clientes.find(function(c){return c.id===cliId;});
+      var veh = vehiculos.find(function(v){return v.id===vehId;});
+      var obj = {
+        noRecepcion:$v('r_no').trim(),
+        fecha:$v('r_fec'), hora:$v('r_hor'),
+        clienteId:cliId, clienteNombre:cli?cli.nombre:'',
+        vehiculoId:vehId, placa:veh?veh.placa:'',
+        vehiculoDesc:veh?(veh.marca+' '+veh.modelo+' '+(veh.anio||'')).trim():'',
+        kmEntrada:parseInt($v('r_km'))||0,
+        combustible:$v('r_com'),
+        tipoServicio:$v('r_tip'),
+        motivo:$v('r_mot').trim(),
+        danosPreexistentes:$v('r_dan').trim(),
+        accesorios:$v('r_acc').trim(),
+        nombreEntrega:$v('r_ent').trim(),
+        tecnico:$v('r_tec'),
+        estado:r.estado||'recibido',
+        updatedAt:nowTs()
+      };
+      if (id) { obj.id=id; await dbPut('recepciones',obj); }
+      else { obj.createdAt=nowTs(); await dbAdd('recepciones',obj); }
+      cerrarModal('rec');
+      toast(id?'Recepcion actualizada':'Vehiculo recibido');
+      await navTo('recepciones');
+    }, true);
+
+  // Agregar botones inline + filtrar vehiculos por cliente
+  setTimeout(function(){
+    agregarBotonesInline([{selectId:'r_cli',tipo:'cliente'}]);
+    // Boton para crear cliente+vehiculo juntos
+    var cliSel = document.getElementById('r_cli');
+    if (cliSel) {
+      var btn = document.createElement('button');
+      btn.type='button';
+      btn.className='btn btn-sm btn-primary';
+      btn.style.cssText='margin-top:4px;font-size:11px';
+      btn.textContent='+ Nuevo cliente + vehiculo juntos';
+      btn.onclick = function(){
+        crearClienteVehiculoInline(function(nuevo){
+          // Agregar cliente al select
+          var optC = document.createElement('option');
+          optC.value=nuevo.clienteId; optC.textContent=nuevo.clienteNombre; optC.selected=true;
+          cliSel.appendChild(optC);
+          // Agregar vehiculo al select de vehiculos
+          var vehSel = document.getElementById('r_veh');
+          if (vehSel) {
+            var optV = document.createElement('option');
+            optV.value=nuevo.vehiculoId;
+            optV.textContent=nuevo.placa+(nuevo.vehiculoDesc?' - '+nuevo.vehiculoDesc:'');
+            optV.selected=true;
+            vehSel.appendChild(optV);
+          }
+        });
+      };
+      cliSel.parentNode.appendChild(btn);
+    }
+    if (r.clienteId) filtrarVehPorCli();
+  }, 150);
+}
+
+function filtrarVehPorCli() {
+  var cliId = parseInt($v('r_cli'));
+  if (!cliId) return;
+  dbGetAll('vehiculos').then(function(vehs){
+    var sel = document.getElementById('r_veh');
+    if (!sel) return;
+    var filtrados = vehs.filter(function(v){return v.clienteId===cliId;});
+    var opts = '<option value="">Seleccionar vehiculo...</option>'
+      + filtrados.map(function(v){
+          return '<option value="'+v.id+'">'+v.placa+' - '+v.marca+' '+v.modelo+'</option>';
+        }).join('');
+    sel.innerHTML = opts;
+  });
+}
+
+// ================================================================
+// 4. COTIZACIONES -> OT DIRECTO
+// ================================================================
+
+async function cotizacionAOrden(cotId) {
+  var c = await dbGet('cotizaciones', cotId);
+  if (!c) return;
+
+  var clientes  = await dbGetAll('clientes');
+  var vehiculos = await dbGetAll('vehiculos');
+  var empleados = await dbGetAll('empleados');
+  var cfg       = await dbGet('config','taller') || {};
+
+  // Marcar cotizacion como aprobada
+  c.estado = 'aprobada';
+  await dbPut('cotizaciones', c);
+
+  // Construir lineas de OT desde la cotizacion
+  var moItems = (c.servicios||[]).map(function(s){
+    return {concepto:s.label, horas:s.horas||1, tarifa:c.tarifaHora||cfg.tarifaHora||150, descuento:0};
+  });
+  var noOT = 'OT-'+Date.now().toString(36).toUpperCase();
+
+  var cliOpts = clientes.map(function(cl){
+    return '<option value="'+cl.id+'"'+(c.clienteId===cl.id?' selected':'')+'>'+cl.nombre+'</option>';
+  }).join('');
+  var vehOpts = vehiculos.filter(function(v){return v.clienteId===c.clienteId;}).map(function(v){
+    return '<option value="'+v.id+'"'+(c.vehiculoId===v.id?' selected':'')+'>'+v.placa+' - '+v.marca+' '+v.modelo+'</option>';
+  }).join('');
+  var tecOpts = '<option value="">Seleccionar...</option>'
+    + empleados.filter(function(e){return e.activo!==false;}).map(function(e){
+        return '<option value="'+e.nombre+'">'+e.nombre+'</option>';
+      }).join('');
+
+  openModal('cot2ot','Crear OT desde Cotizacion: '+c.noCotizacion,
+    '<div class="alert alert-green" style="font-size:11px">Cotizacion aprobada. Se creara una OT con los servicios cotizados.</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>No. OT</label><input id="c2o_no" value="'+noOT+'"></div>'
+    +'<div class="form-group"><label>Fecha</label><input id="c2o_fe" type="date" value="'+today()+'"></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Cliente</label><select id="c2o_cli">'+cliOpts+'</select></div>'
+    +'<div class="form-group"><label>Vehiculo</label><select id="c2o_veh">'+vehOpts+'</select></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Tecnico asignado</label><select id="c2o_tec">'+tecOpts+'</select></div>'
+    +'<div class="form-group"><label>Prioridad</label>'
+    +'<select id="c2o_pri"><option value="normal">Normal</option><option value="urgente">Urgente</option></select>'
+    +'</div></div>'
+    +'<div class="form-group"><label>Descripcion del trabajo</label>'
+    +'<textarea id="c2o_desc">'+(c.servicios||[]).map(function(s){return s.label;}).join(', ')+'</textarea></div>'
+    +'<div class="card" style="padding:10px;margin-top:4px">'
+    +'<div class="card-title" style="margin-bottom:6px">Servicios de la cotizacion</div>'
+    +(c.servicios||[]).map(function(s){
+      return '<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)">'
+        +'<span>'+s.label+'</span><span class="td-mono">'+s.horas+'h | Q'+( (s.precio||0)+(s.moLinea||0)).toFixed(2)+'</span></div>';
+    }).join('')
+    +'<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;padding:6px 0;border-top:2px solid var(--border);margin-top:4px">'
+    +'<span>Total cotizado:</span><span class="td-mono text-green">Q '+(c.totalConIVA||0).toFixed(2)+'</span></div>'
+    +'</div>',
+    async function(){
+      var cliId = parseInt($v('c2o_cli'));
+      var vehId = parseInt($v('c2o_veh'));
+      var cli = clientes.find(function(cl){return cl.id===cliId;});
+      var veh = vehiculos.find(function(v){return v.id===vehId;});
+      var desc = $v('c2o_desc').trim();
+      var tec  = $v('c2o_tec');
+      var noOT2 = $v('c2o_no').trim();
+      var tar = c.tarifaHora||cfg.tarifaHora||150;
+
+      // Calcular totales
+      var subMO = moItems.reduce(function(a,m){return a+m.horas*m.tarifa;},0);
+      var subIT = (c.servicios||[]).reduce(function(a,s){return a+(s.precio||0);},0);
+      var sub = parseFloat((subMO+subIT).toFixed(2));
+      var iva = parseFloat((sub*0.12).toFixed(2));
+      var tot = parseFloat((sub+iva).toFixed(2));
+
+      var otObj = {
+        noOT:noOT2, fecha:$v('c2o_fe'),
+        tipoServicio:'correctivo',
+        clienteId:cliId, clienteNombre:cli?cli.nombre:'',
+        vehiculoId:vehId, placa:veh?veh.placa:'',
+        tecnico:tec, estado:'nuevo',
+        prioridad:$v('c2o_pri'),
+        descripcion:desc,
+        manoObra:moItems,
+        items:[], otrosCargos:[],
+        cotizacionId:cotId, noCotizacion:c.noCotizacion,
+        subtotalMO:subMO, subtotalIT:subIT,
+        subtotal:sub, iva:iva, totalConIVA:tot,
+        createdAt:nowTs(), updatedAt:nowTs()
+      };
+      await dbAdd('ordenes', otObj);
+      cerrarModal('cot2ot');
+      toast('OT '+noOT2+' creada desde cotizacion '+c.noCotizacion,'green');
+      await navTo('ordenes');
+    }, true);
+}
+
+// ================================================================
+// 5. REPORTE GENERAL - SELECCION DE RUBROS MEJORADA
+// ================================================================
+
+async function renderReporteGeneral(content, actions) {
+  if (!soloAdmin()) { content.innerHTML='<div class="alert alert-red">Solo administradores</div>'; return; }
+  actions.innerHTML = '<button class="btn btn-primary" onclick="generarReporteSeleccion()">Generar e imprimir</button>'
+    + ' <button class="btn btn-secondary" onclick="exportarReporteCSV()">Exportar CSV</button>';
+
+  var rubros = [
+    {id:'resumen',    label:'Resumen ejecutivo', grupo:'Financiero', checked:true},
+    {id:'facturas',   label:'Facturacion del mes', grupo:'Financiero', checked:true},
+    {id:'impuestos',  label:'IVA / ISR estimado', grupo:'Financiero', checked:true},
+    {id:'costos',     label:'Costos operativos del mes', grupo:'Financiero', checked:true},
+    {id:'bancos',     label:'Saldo cuentas bancarias', grupo:'Financiero', checked:false},
+    {id:'activos',    label:'Activos y depreciacion', grupo:'Financiero', checked:false},
+    {id:'empleados',  label:'Nomina y empleados activos', grupo:'RRHH', checked:true},
+    {id:'provisiones',label:'Provisiones laborales (B14/Agui/Vac/Indem)', grupo:'RRHH', checked:true},
+    {id:'vacaciones', label:'Vacaciones pendientes', grupo:'RRHH', checked:false},
+    {id:'llamadas',   label:'Llamadas de atencion', grupo:'RRHH', checked:false},
+    {id:'capacitacion',label:'Capacitaciones', grupo:'RRHH', checked:false},
+    {id:'ordenes',    label:'Ordenes de trabajo del mes', grupo:'Taller', checked:true},
+    {id:'cotizaciones',label:'Cotizaciones pendientes', grupo:'Taller', checked:true},
+    {id:'recepciones',label:'Recepciones del mes', grupo:'Taller', checked:false},
+    {id:'repuestos',  label:'Inventario repuestos (stock bajo)', grupo:'Inventario', checked:true},
+    {id:'insumos',    label:'Inventario insumos', grupo:'Inventario', checked:false},
+    {id:'proveedores',label:'Proveedores activos', grupo:'Inventario', checked:false},
+    {id:'clientes',   label:'Clientes registrados', grupo:'Clientes', checked:false},
+    {id:'flota',      label:'Contratos de flota activos', grupo:'Clientes', checked:true},
+    {id:'envios',     label:'Envios en proceso', grupo:'Clientes', checked:false},
+    {id:'srvexternos',label:'Servicios externos en proceso', grupo:'Operativo', checked:true},
+    {id:'alertas',    label:'Alertas pendientes', grupo:'Operativo', checked:true},
+    {id:'viaticos',   label:'Viaticos del mes', grupo:'Operativo', checked:false},
+    {id:'whatsapp',   label:'Mensajes WhatsApp enviados', grupo:'Operativo', checked:false},
+  ];
+
+  // Agrupar
+  var grupos = {};
+  rubros.forEach(function(r){
+    if (!grupos[r.grupo]) grupos[r.grupo]=[];
+    grupos[r.grupo].push(r);
+  });
+
+  var gruposHTML = Object.entries(grupos).map(function(entry){
+    var nombre=entry[0]; var items=entry[1];
+    return '<div class="card" style="margin-bottom:10px">'
+      +'<div class="card-header"><span class="card-title">'+nombre+'</span>'
+      +'<div class="flex gap-1">'
+      +'<button class="btn btn-sm btn-secondary" onclick="toggleGrupoRubros(\''+nombre+'\',true)">Todos</button>'
+      +'<button class="btn btn-sm btn-secondary" onclick="toggleGrupoRubros(\''+nombre+'\',false)">Ninguno</button>'
+      +'</div></div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">'
+      +items.map(function(r){
+        return '<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--bg3);border-radius:6px;cursor:pointer;font-size:12px">'
+          +'<input type="checkbox" value="'+r.id+'" data-grupo="'+r.grupo+'" class="rubro_cb"'+(r.checked?' checked':'')+' style="width:auto"> '
+          +r.label+'</label>';
+      }).join('')
+      +'</div></div>';
+  }).join('');
+
+  content.innerHTML = '<div class="section-title">Reporte General</div>'
+    +'<div class="section-sub">Selecciona los rubros a incluir en el reporte imprimible</div>'
+    +'<div class="card">'
+    +'<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">'
+    +'<button class="btn btn-sm btn-secondary" onclick="toggleTodosRubros(true)">Seleccionar todos</button>'
+    +'<button class="btn btn-sm btn-secondary" onclick="toggleTodosRubros(false)">Deseleccionar todos</button>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Periodo del reporte</label><input id="rep_periodo" value="'+today().slice(0,7)+'" placeholder="YYYY-MM"></div>'
+    +'<div class="form-group"><label>Titulo del reporte</label><input id="rep_titulo" value="Reporte General '+today().slice(0,7)+'"></div>'
+    +'</div></div>'
+    + gruposHTML;
+}
+
+function toggleGrupoRubros(grupo, val) {
+  document.querySelectorAll('.rubro_cb[data-grupo="'+grupo+'"]').forEach(function(cb){cb.checked=val;});
+}
+
+function toggleTodosRubros(val) {
+  document.querySelectorAll('.rubro_cb').forEach(function(cb){cb.checked=val;});
+}
+
+async function exportarReporteCSV() {
+  var sel = Array.from(document.querySelectorAll('.rubro_cb:checked')).map(function(cb){return cb.value;});
+  var periodo = (document.getElementById('rep_periodo')||{}).value || today().slice(0,7);
+  var cfg = await dbGet('config','taller')||{};
+  var csv = 'Reporte '+cfg.nombre+' | '+periodo+'\n\n';
+
+  if (sel.indexOf('facturas') >= 0) {
+    var facs = (await dbGetAll('facturas')).filter(function(f){return f.fecha&&f.fecha.startsWith(periodo);});
+    csv += 'FACTURACION\nNo.,Fecha,Cliente,NIT,Subtotal,IVA,Total,Estado\n';
+    facs.forEach(function(f){csv+=(f.noFactura||f.id)+','+f.fecha+','+f.clienteNombre+','+(f.nit||'CF')+','+( f.subtotal||0).toFixed(2)+','+(f.iva||0).toFixed(2)+','+(f.total||0).toFixed(2)+','+(f.pagada?'Pagada':'Pendiente')+'\n';});
+    csv += '\n';
+  }
+  if (sel.indexOf('empleados') >= 0) {
+    var emps = (await dbGetAll('empleados')).filter(function(e){return e.activo!==false;});
+    csv += 'EMPLEADOS\nNombre,Cargo,CE,Salario\n';
+    emps.forEach(function(e){csv+=e.nombre+','+( e.cargo||'')+','+(e.circunscripcion||'CE1')+','+(e.salarioBase||0).toFixed(2)+'\n';});
+    csv += '\n';
+  }
+
+  var blob = new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a'); a.href=url; a.download='reporte_'+periodo+'.csv'; a.click();
+  toast('CSV exportado');
+}
+
+async function init(){
+  try {
+    await initDB();
+    // Leer licencia del localStorage ANTES de cualquier otra cosa
+    await verificarLicenciaGuardada();
+    await cargarDatosDemostracion();
+    actualizarBadgeLicencia();
+    const sesionOk=await cargarSesion();
+    if(sesionOk){
+      document.getElementById('app').style.display='flex';
+      await iniciarApp();
+    }else{
+      document.getElementById('app').style.display='none';
+      // Primera vez: mostrar onboarding si no hay perfil de taller configurado
+      var perfilTaller = obtenerPerfilTaller();
+      var usuariosExist = await dbGetAll('usuarios');
+      var tieneAdminReal = usuariosExist.some(function(u){ return !u.esDemo && u.activo; });
+      if (!perfilTaller && !tieneAdminReal) {
+        mostrarOnboarding();
+      } else {
+        mostrarLogin();
+      }
+    }
+  } catch(err) {
+    document.body.innerHTML='<div style="background:#1a1a1a;color:#e05a4e;padding:30px;font-family:monospace;font-size:13px;min-height:100vh">'
+      +'<h2 style="color:#e8a820;margin-bottom:16px">TallerPro GT - Error de inicio</h2>'
+      +'<div style="margin-bottom:8px"><b>Error:</b> '+(err&&err.message?err.message:String(err))+'</div>'
+      +'<div style="margin-bottom:8px"><b>Stack:</b> <pre style="font-size:10px;color:#9a9690;white-space:pre-wrap">'+(err&&err.stack?err.stack.slice(0,500):'')+'</pre></div>'
+      +'<button onclick="resetDB()" '
+      +'style="margin-top:20px;background:#e8a820;color:#000;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;font-size:14px">'
+      +'Reiniciar y recargar</button></div>';
+  }
+}
+
+document.addEventListener("DOMContentLoaded", function(){ init(); });
+
+
+
+/* ── GUARDIA DE FORMULARIO ────────────────────────────────────── */
+var _formDirty = false;
+var _formGuardEnabled = false;
+
+function formEnableGuard() {
+  _formGuardEnabled = true; _formDirty = false;
+  setTimeout(function() {
+    document.querySelectorAll('.modal input,.modal textarea,.modal select').forEach(function(el) {
+      el.addEventListener('input', function(){ _formDirty = true; });
+      el.addEventListener('change', function(){ _formDirty = true; });
+    });
+  }, 300);
+}
+function formDisableGuard() { _formGuardEnabled = false; _formDirty = false; }
+
+// Badge clickeable siempre
+document.addEventListener('DOMContentLoaded', function() {
+  document.body.addEventListener('click', function(e) {
+    // badge_licencia: solo informativo, ver menú lateral
+  });
+});
+
+// Hook de navTo: advertir cambios sin guardar
+(function(){
+  var _navOrig = navTo;
+  navTo = async function(page, extra) {
+    if (_formGuardEnabled && _formDirty) {
+      if (!confirm('Tienes cambios sin guardar.\n¿Descartar y continuar?')) return;
+      formDisableGuard();
+    }
+    return _navOrig(page, extra);
+  };
+  // Hook openModal: activar guardia automáticamente
+  var _omOrig = openModal;
+  openModal = function(id, tit, cont, onG, mosG) {
+    _omOrig(id, tit, cont, onG, mosG);
+    var skip = ['modal_licencia','modal_pago','confirm_paypal','info_gpay'];
+    if (skip.indexOf(id) < 0) formEnableGuard();
+  };
+  // Hook cerrarModal: limpiar guardia
+  var _cmOrig = cerrarModal;
+  cerrarModal = function(id) {
+    formDisableGuard();
+    _cmOrig(id);
+  };
+})();
+
+async function renderIvaIsr(content,actions){
+  if(!adminOSupervisor()){content.innerHTML='<div class="alert alert-red">Sin acceso</div>';return;}
+  actions.innerHTML='<button class="btn btn-primary" onclick="generarDeclaracionIVA()">Generar declaración</button>';
+  var facturas=await dbGetAll('facturas');
+  var costos=await dbGetAll('costos');
+  var anio=new Date().getFullYear();
+  var mesActual=new Date().getMonth()+1; // 1-12
+  var trimestreActual=Math.ceil(mesActual/3); // 1-4
+
+  // Calcular por mes solo hasta el mes actual
+  function datosMes(m){
+    var pfx=anio+'-'+String(m).padStart(2,'0');
+    var ventas=facturas.filter(f=>f.fecha&&f.fecha.startsWith(pfx)&&f.estado!=='anulada');
+    var ivaVentas=ventas.reduce(function(a,f){return a+(f.iva||0);},0);
+    var compras=costos.filter(c=>c.fecha&&c.fecha.startsWith(pfx));
+    var ivaCred=compras.reduce(function(a,c){return a+(c.ivaAcreditado||0);},0);
+    var totalVentas=ventas.reduce(function(a,f){return a+(f.total||0);},0);
+    return {ventas:totalVentas, ivaVentas:ivaVentas, ivaCred:ivaCred, ivaPagar:Math.max(0,ivaVentas-ivaCred), n:ventas.length};
+  }
+
+  var trimestres=[
+    {label:'1er Trimestre',meses:[1,2,3],num:1},
+    {label:'2do Trimestre',meses:[4,5,6],num:2},
+    {label:'3er Trimestre',meses:[7,8,9],num:3},
+    {label:'4to Trimestre',meses:[10,11,12],num:4},
+  ];
+
+  var mesesNombres=['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+  var htmlTrims='';
+  var totalAnualVentas=0,totalAnualIvaV=0,totalAnualIvaC=0,totalAnualIvaP=0;
+
+  trimestres.forEach(function(t){
+    // Solo mostrar trimestres ya iniciados (trimestre actual o anteriores)
+    if(t.num>trimestreActual) return;
+    var trVentas=0,trIvaV=0,trIvaC=0,trIvaP=0;
+    var mesesHTML='';
+    t.meses.forEach(function(m){
+      // Solo mostrar meses ya pasados o el actual
+      if(m>mesActual) return;
+      var d=datosMes(m);
+      trVentas+=d.ventas; trIvaV+=d.ivaVentas; trIvaC+=d.ivaCred; trIvaP+=d.ivaPagar;
+      totalAnualVentas+=d.ventas; totalAnualIvaV+=d.ivaVentas; totalAnualIvaC+=d.ivaCred; totalAnualIvaP+=d.ivaPagar;
+      mesesHTML+='<tr><td style="padding-left:16px;font-size:12px">'+mesesNombres[m]+'</td>'
+        +'<td class="td-mono td-right">'+fmt(d.ventas)+'</td>'
+        +'<td class="td-mono td-right text-green">'+fmt(d.ivaVentas)+'</td>'
+        +'<td class="td-mono td-right text-amber">'+fmt(d.ivaCred)+'</td>'
+        +'<td class="td-mono td-right '+(d.ivaPagar>0?'text-red':'text-green')+'">'+fmt(d.ivaPagar)+'</td>'
+        +'<td><span class="badge badge-'+(d.n>0?'green':'gray')+'">'+d.n+' facts</span></td></tr>';
+    });
+    if(!mesesHTML) return;
+    htmlTrims+='<tr style="background:var(--bg3);font-weight:700"><td>'+t.label+'</td>'
+      +'<td class="td-mono td-right">'+fmt(trVentas)+'</td>'
+      +'<td class="td-mono td-right text-green">'+fmt(trIvaV)+'</td>'
+      +'<td class="td-mono td-right text-amber">'+fmt(trIvaC)+'</td>'
+      +'<td class="td-mono td-right '+(trIvaP>0?'text-red':'text-green')+'">'+fmt(trIvaP)+'</td>'
+      +'<td></td></tr>'+mesesHTML;
+  });
+
+  content.innerHTML='<div class="section-title">📊 IVA / ISR — '+anio+'</div>'
+    +'<div class="section-sub">Hasta el mes de '+mesesNombres[mesActual]+' (Trimestre '+trimestreActual+'). Los trimestres futuros no se proyectan.</div>'
+    +'<div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">'
+    +'<div class="stat-card stat-blue"><div class="stat-label">Ventas acumuladas</div><div class="stat-value">'+fmt(totalAnualVentas)+'</div><div class="stat-sub">'+anio+'</div></div>'
+    +'<div class="stat-card stat-green"><div class="stat-label">IVA débito (cobrado)</div><div class="stat-value">'+fmt(totalAnualIvaV)+'</div></div>'
+    +'<div class="stat-card stat-amber"><div class="stat-label">IVA crédito (pagado)</div><div class="stat-value">'+fmt(totalAnualIvaC)+'</div></div>'
+    +'<div class="stat-card '+(totalAnualIvaP>0?'stat-red':'stat-green')+'"><div class="stat-label">IVA a pagar acumulado</div><div class="stat-value">'+fmt(totalAnualIvaP)+'</div></div>'
+    +'</div>'
+    +'<div class="card"><div class="table-wrap"><table class="table">'
+    +'<thead><tr><th>Período</th><th class="td-right">Ventas</th><th class="td-right">IVA Débito</th><th class="td-right">IVA Crédito</th><th class="td-right">A Pagar</th><th>Docs</th></tr></thead>'
+    +'<tbody>'+htmlTrims+'</tbody>'
+    +'</table></div>'
+    +'<div style="background:var(--bg3);border-radius:8px;padding:12px 16px;margin-top:12px;display:flex;justify-content:space-between;align-items:center">'
+    +'<div style="font-size:13px;font-weight:700">Total acumulado '+anio+' a pagar al SAT:</div>'
+    +'<div style="font-size:18px;font-weight:800;font-family:var(--font-mono);color:var('+(totalAnualIvaP>0?'--red':'--green')+')">'+fmt(totalAnualIvaP)+'</div>'
+    +'</div></div>';
+}
+

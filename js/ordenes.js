@@ -1,9 +1,106 @@
-/* TallerPro GT — js/ordenes.js
-   Módulo independiente — cada archivo tiene funciones específicas
-   Para editar: modificar solo este archivo y recargar
-*/
+/* TallerPro GT — ordenes.js */
 
-function renderOrdenes(content,actions){
+async function renderRecepciones(content,actions){
+  const recepciones=await dbGetAll('recepciones');
+  recepciones.sort((a,b)=>(a.fecha||'')<(b.fecha||'')?1:-1);
+  actions.innerHTML=`<button class="btn btn-primary" onclick="modalRecepcion()">+ Nueva recepci\u00F3n</button>`;
+  content.innerHTML=`
+  <div class="section-title">Recepci\u00F3n de Veh\u00EDculos</div>
+  <div class="section-sub">Registro de ingreso \u2014 ${recepciones.length} recepciones</div>
+  <div class="card" style="padding:10px">
+    <div class="table-wrap"><table>
+      <thead><tr><th>No.</th><th>Fecha/Hora</th><th>Placa</th><th>Cliente</th><th>Tipo</th><th>T\u00E9cnico</th><th>Fotos</th><th>Estado</th><th>Acciones</th></tr></thead>
+      <tbody>
+        ${recepciones.map(r=>`<tr>
+          <td class="td-mono" style="font-weight:600">${r.noRecepcion||('#'+r.id)}</td>
+          <td style="font-size:11px">${fechaLegible(r.fecha)} ${r.hora||''}</td>
+          <td class="td-mono">${r.placa||'\u2014'}</td>
+          <td>${r.clienteNombre||'\u2014'}</td>
+          <td><span class="badge badge-${r.tipoServicio==='preventivo'?'green':'amber'}">${r.tipoServicio||'\u2014'}</span></td>
+          <td>${r.tecnico||'\u2014'}</td>
+          <td>${r.nFotos>0?`<span class="badge badge-blue">\u1F4F7 ${r.nFotos}</span>`:'<span class="text-muted" style="font-size:11px">Sin fotos</span>'}</td>
+          <td><span class="badge badge-${r.estado==='entregado'?'green':r.estado==='en_taller'?'blue':'amber'}">${r.estado||'recibido'}</span></td>
+          <td><div class="flex gap-1">
+            <button class="btn btn-sm btn-secondary" onclick="imprimirRecepcion(${r.id})">\u1F5A8</button>
+            <button class="btn btn-sm btn-secondary" onclick="verFotosRecepcion(${r.id})">\u1F4F7</button>
+            <button class="btn btn-sm btn-green" onclick="crearOTdesdeRecepcion(${r.id})">\u2192OT</button>
+            ${soloAdmin()||adminOSupervisor()?`<button class="btn btn-sm btn-danger" onclick="eliminarRecepcion(${r.id})">\u2715</button>`:''}
+          </div></td>
+        </tr>`).join('')||'<tr><td colspan="9" class="text-center text-muted" style="padding:20px">Sin recepciones</td></tr>'}
+      </tbody>
+    </table></div>
+  </div>`;
+}
+
+
+
+function fileToBase64(file){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=rej;r.readAsDataURL(file);
+  });
+}
+
+async function verFotosRecepcion(id){
+  const rec=await dbGet('recepciones',id);
+  const fotos=await dbGetAll('fotos');
+  const fotosRec=fotos.filter(f=>f.recepcionId===id);
+  openModal('verFotos',`Fotograf\u00EDas \u2014 ${rec?.noRecepcion||'REC'} | ${rec?.placa||''}`,`
+    ${fotosRec.length===0?'<div class="alert alert-amber">No hay fotograf\u00EDas para esta recepci\u00F3n. Edita la recepci\u00F3n para agregar fotos.</div>':
+      `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px">
+        ${fotosRec.map(f=>`<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <img src="${f.datos}" style="width:100%;height:140px;object-fit:cover;display:block">
+          <div style="padding:6px 8px;font-size:11px;color:var(--text2)">${f.nombre||'foto'}<br>${fechaLegible(f.fecha)}</div>
+        </div>`).join('')}
+      </div>`}
+    <div style="margin-top:12px;font-size:12px;color:var(--text3)">Las fotograf\u00EDas se guardan en la base de datos local del navegador.</div>
+  `,()=>closeModal('verFotos'),true);
+}
+
+async function imprimirRecepcion(id){
+  const r=await dbGet('recepciones',id);
+  const cfg=await dbGet('config','taller')||{};
+  const w=window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Recepci\u00F3n ${r.noRecepcion}</title>
+  <style>*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:12px;padding:24px;max-width:700px;margin:0 auto;color:#111}
+  h1{font-size:16px;margin:0}h2{font-size:12px;color:#555;font-weight:normal;margin:0}
+  .header{display:flex;justify-content:space-between;border-bottom:2px solid #333;padding-bottom:10px;margin-bottom:14px}
+  .row{display:flex;gap:20px;margin-bottom:6px}.label{color:#777;min-width:150px;font-weight:600}
+  .box{border:1px solid #ccc;border-radius:4px;padding:8px 12px;margin-bottom:10px}
+  .firma{margin-top:36px;display:flex;gap:60px}.firma-line{border-top:1px solid #333;padding-top:6px;min-width:200px;text-align:center;font-size:11px;color:#555}
+  @media print{button{display:none}}</style></head><body>
+  <div class="header">
+    <div><h1>\u2699 ${cfg.nombre||'TALLER PRO GT'}</h1><h2>NIT: ${cfg.nit||'\u2014'} | ${cfg.telefono||'\u2014'}</h2><h2>${cfg.direccion||''}</h2></div>
+    <div style="text-align:right"><h1>RECEPCI\u00D3N DE VEH\u00CDCULO</h1><h2>No. ${r.noRecepcion||r.id}</h2><h2>${r.fecha} \u2014 ${r.hora||''}</h2></div>
+  </div>
+  <div class="box">
+    <div class="row"><span class="label">Cliente:</span><strong>${r.clienteNombre}</strong></div>
+    <div class="row"><span class="label">Placa / Veh\u00EDculo:</span>${r.placa} \u2014 ${r.vehiculoDesc||''}</div>
+    <div class="row"><span class="label">Km entrada:</span>${(r.kmEntrada||0).toLocaleString()} km</div>
+    <div class="row"><span class="label">Combustible:</span>${r.combustible||'\u2014'}</div>
+    <div class="row"><span class="label">Tipo de servicio:</span>${r.tipoServicio||'\u2014'}</div>
+    <div class="row"><span class="label">T\u00E9cnico asignado:</span>${r.tecnico||'\u2014'}</div>
+  </div>
+  <div class="box"><div class="label">Motivo de ingreso / S\u00EDntomas:</div><div style="margin-top:4px">${r.motivo||'\u2014'}</div></div>
+  <div class="box"><div class="label">Da\u00F1os preexistentes:</div><div style="margin-top:4px">${r.danosPreexistentes||'Ninguno reportado'}</div></div>
+  <div class="box"><div class="label">Accesorios entregados:</div><div style="margin-top:4px">${r.accesorios||'Ninguno'}</div></div>
+  ${r.observaciones?`<div class="box"><div class="label">Observaciones:</div><div style="margin-top:4px">${r.observaciones}</div></div>`:''}
+  <div class="firma">
+    <div class="firma-line">Firma de quien entrega<br><br>${r.nombreEntrega||'_______________________'}</div>
+    <div class="firma-line">Firma de recepci\u00F3n<br><br>${r.tecnico||'_______________________'}</div>
+  </div>
+  <div style="margin-top:20px;font-size:10px;color:#aaa;text-align:center">TallerPro GT \u2014 ${new Date().toLocaleString('es-GT')}</div>
+  </body></html>`);
+  w.document.close(); setTimeout(function(){w.print();},400);
+}
+
+async function crearOTdesdeRecepcion(recepcionId){
+  const r=await dbGet('recepciones',recepcionId);
+  await navTo('ordenes');setTimeout(()=>modalOrden(null,r),300);
+}
+async function eliminarRecepcion(id){if(!adminOSupervisor())return;if(!confirm('\u00BFEliminar recepci\u00F3n?'))return;await dbDelete('recepciones',id);await navTo('recepciones');}
+
+/* ---- \u00D3RDENES DE TRABAJO MEJORADAS ---- */
+async function renderOrdenes(content,actions){
   const ordenes=await dbGetAll('ordenes');
   ordenes.sort((a,b)=>(a.fecha||'')<(b.fecha||'')?1:-1);
   actions.innerHTML=`<button class="btn btn-primary" onclick="modalOrden()">+ Nueva OT</button>`;
@@ -52,6 +149,42 @@ function filtrarOrdenes(estado){
 /* ================================================================
    NUMERACIÓN CORRELATIVA ANUAL — OT, REC, COT, REP, INS
    ================================================================ */
+async function genNumAnual(store, campo, prefijo) {
+  var anio = new Date().getFullYear();
+  var todos = await dbGetAll(store);
+  var pat = new RegExp('^' + prefijo + '-' + anio + '-');
+  var deEsteAnio = todos.filter(function(o){ return o[campo] && pat.test(o[campo]); });
+  var max = 0;
+  deEsteAnio.forEach(function(o) {
+    var partes = (o[campo]||'').split('-');
+    var num = parseInt(partes[partes.length-1]) || 0;
+    if (num > max) max = num;
+  });
+  return prefijo + '-' + anio + '-' + String(max + 1).padStart(6, '0');
+}
+
+async function genNumSecuencial(store, campo, prefijo) {
+  // Sin año — REP-00000001, INS-00000001
+  var todos = await dbGetAll(store);
+  var pat = new RegExp('^' + prefijo + '-\\d+$');
+  var max = 0;
+  todos.forEach(function(o) {
+    if (o[campo] && pat.test(o[campo])) {
+      var num = parseInt((o[campo]||'').split('-')[1]) || 0;
+      if (num > max) max = num;
+    }
+  });
+  return prefijo + '-' + String(max + 1).padStart(8, '0');
+}
+
+async function generarNumeroOT()  { return genNumAnual('ordenes', 'noOT', 'OT'); }
+async function generarNumeroREC() { return genNumAnual('recepciones', 'noRecepcion', 'REC'); }
+async function generarNumeroCOT() { return genNumAnual('cotizaciones', 'noCotizacion', 'COT'); }
+async function generarNumeroREP() { return genNumSecuencial('repuestos', 'codigo', 'REP'); }
+async function generarNumeroINS() { return genNumSecuencial('insumos', 'codigo', 'INS'); }
+
+
+
 async function modalOrden(id=null,recepcionData=null){
   const clientes=await dbGetAll('clientes');
   const vehiculos=await dbGetAll('vehiculos');
@@ -372,551 +505,3 @@ async function facturarOrden(id){
 async function eliminarOrden(id){if(!soloAdmin())return;if(!confirm('\u00BFEliminar?'))return;await dbDelete('ordenes',id);await navTo('ordenes');}
 
 /* ---- FACTURACI\u00D3N MEJORADA CON DETALLE COMPLETO ---- */
-async function modalCotizacion(id) {
-  var cot=id?await dbGet('cotizaciones',id):{};
-  var nuevoNoCOT = id ? (cot.noCotizacion||'') : await generarNumeroCOT();
-  var clientes=await dbGetAll('clientes');
-  var vehiculos=await dbGetAll('vehiculos');
-  var cfg=await dbGet('config','taller')||{};
-  var tarifaHora=cfg.tarifaHora||150;
-  var cliOpts='<option value="">Seleccionar...</option>'+clientes.map(function(c){return '<option value="'+c.id+'"'+(cot.clienteId===c.id?' selected':'')+'>'+c.nombre+'</option>';}).join('');
-  var vehOpts='<option value="">Seleccionar...</option>'+vehiculos.map(function(v){return '<option value="'+v.id+'"'+(cot.vehiculoId===v.id?' selected':'')+'>'+v.placa+' - '+v.marca+' '+v.modelo+'</option>';}).join('');
-  var serviciosSelec=cot.servicios||[];
-
-  openModal('cot_m',id?'Editar Cotizacion':'Nueva Cotizacion',
-    '<div class="form-row form-row-2">'
-    +'<div class="form-group"><label>No. cotizacion</label><input id="ct_no" value="'+(cot.noCotizacion||nuevoNoCOT)+'"></div>'
-    +'<div class="form-group"><label>Fecha</label><input id="ct_fe" type="date" value="'+(cot.fecha||today())+'"></div>'
-    +'</div>'
-    +'<div class="form-row form-row-2">'
-    +'<div class="form-group"><label>Cliente *</label><select id="ct_cli">'+cliOpts+'</select></div>'
-    +'<div class="form-group"><label>Vehiculo</label><select id="ct_veh">'+vehOpts+'</select></div>'
-    +'</div>'
-    +'<div class="form-group"><label>Tarifa mano de obra (Q/hr)</label><input id="ct_tar" type="number" value="'+tarifaHora+'" step="0.01" oninput="calcTotCot()"></div>'
-    +'<div class="card-title" style="margin-bottom:8px;margin-top:4px">Servicios a cotizar</div>'
-    +'<div style="display:grid;gap:6px">'
-    +SERVICIOS_EXTRA.map(function(s){
-      var sel=serviciosSelec.find(function(x){return x.id===s.id;});
-      return '<div style="background:var(--bg3);border-radius:6px;padding:8px 10px;display:flex;align-items:center;gap:10px">'
-        +'<input type="checkbox" value="'+s.id+'" class="srv_cb" style="width:auto" onchange="calcTotCot()"'+(sel?' checked':'')+'>'
-        +'<span style="flex:1;font-size:12px">'+s.label+'</span>'
-        +'<input type="number" id="srv_p_'+s.id+'" value="'+(sel?sel.precio:s.precioBase)+'" step="0.01" min="0" style="width:100px;text-align:right;font-size:12px" placeholder="Precio Q" oninput="calcTotCot()">'
-        +'<input type="number" id="srv_h_'+s.id+'" value="'+(sel?sel.horas:s.horas)+'" min="0.5" step="0.5" style="width:60px;text-align:center;font-size:12px" placeholder="Hrs" oninput="calcTotCot()">'
-        +'</div>';
-    }).join('')
-    +'</div>'
-    +'<div class="form-group mt-2"><label>Notas adicionales</label><textarea id="ct_obs" style="min-height:50px">'+(cot.notas||'')+'</textarea></div>'
-    +'<div id="cot_tots" style="text-align:right;margin-top:10px"></div>',
-    async function(){
-      var cliId=parseInt($v('ct_cli'));
-      if(!cliId){toast('Cliente requerido','red');return;}
-      var cli=clientes.find(function(c){return c.id===cliId;});
-      var vehId=parseInt($v('ct_veh'))||null;
-      var veh=vehiculos.find(function(v){return v.id===vehId;});
-      var tar=$n('ct_tar',150);
-      var servicios=[];
-      document.querySelectorAll('.srv_cb:checked').forEach(function(cb){
-        var sid=cb.value;
-        var sdef=SERVICIOS_EXTRA.find(function(s){return s.id===sid;})||{};
-        var precio=$n('srv_p_'+sid)||0;
-        var horas=$n('srv_h_'+sid)||1;
-        servicios.push({id:sid,label:sdef.label||sid,precio:precio,horas:horas,
-          moLinea:parseFloat((horas*tar).toFixed(2))});
-      });
-      var subMat=servicios.reduce(function(a,s){return a+(s.precio||0);},0);
-      var subMO=servicios.reduce(function(a,s){return a+(s.moLinea||0);},0);
-      var sub=parseFloat((subMat+subMO).toFixed(2));
-      var iva=parseFloat((sub*0.12).toFixed(2));
-      var total=parseFloat((sub+iva).toFixed(2));
-      var obj={noCotizacion:$v('ct_no'),fecha:$v('ct_fe'),
-        clienteId:cliId,clienteNombre:cli?cli.nombre:'',
-        vehiculoId:vehId,placa:veh?veh.placa:'',
-        tarifaHora:tar,servicios:servicios,notas:$v('ct_obs').trim(),
-        subtotalMateriales:subMat,subtotalMO:subMO,subtotal:sub,iva:iva,totalConIVA:total,
-        estado:cot.estado||'pendiente',updatedAt:nowTs()};
-      if(id){obj.id=id;await dbPut('cotizaciones',obj);}else{obj.createdAt=nowTs();await dbAdd('cotizaciones',obj);}
-      cerrarModal('cot_m');toast(id?'Actualizada':'Cotizacion creada');await navTo('cotizador');
-    },true);
-  setTimeout(function(){calcTotCot();agregarBotonesInline([{selectId:'ct_cli',tipo:'cliente'}]);},150);
-}
-
-function calcTotCot(){
-  var tar=$n('ct_tar',150);
-  var subMat=0,subMO=0;
-  document.querySelectorAll('.srv_cb:checked').forEach(function(cb){
-    var sid=cb.value;
-    var p=parseFloat((document.getElementById('srv_p_'+sid)||{}).value)||0;
-    var h=parseFloat((document.getElementById('srv_h_'+sid)||{}).value)||0;
-    subMat+=p;subMO+=h*tar;
-  });
-  var sub=subMat+subMO;
-  var iva=sub*0.12;
-  var tot=sub+iva;
-  var el=document.getElementById('cot_tots');if(!el)return;
-  el.innerHTML='<div style="display:inline-block;min-width:280px;background:var(--bg3);border-radius:6px;padding:12px 16px;border:1px solid var(--border)">'
-    +'<div style="display:flex;justify-content:space-between;font-size:13px"><span>Materiales/repuestos:</span><span>Q '+subMat.toFixed(2)+'</span></div>'
-    +'<div style="display:flex;justify-content:space-between;font-size:13px"><span>Mano de obra:</span><span>Q '+subMO.toFixed(2)+'</span></div>'
-    +'<div style="display:flex;justify-content:space-between;font-size:13px;color:var(--accent)"><span>IVA 12%:</span><span>Q '+iva.toFixed(2)+'</span></div>'
-    +'<div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;color:var(--green);border-top:1px solid var(--border);padding-top:6px;margin-top:4px"><span>TOTAL:</span><span>Q '+tot.toFixed(2)+'</span></div>'
-    +'</div>';
-}
-
-async function imprimirCotizacion(id){
-  var c=await dbGet('cotizaciones',id);
-  var cfg=await dbGet('config','taller')||{};
-  var logo=localStorage.getItem('tpgt_logo')||'';
-  var w=window.open('','_blank');
-  var rows=(c.servicios||[]).map(function(s){
-    return '<tr><td>'+s.label+'</td><td style="text-align:center">'+s.horas+'h</td>'
-      +'<td style="text-align:right">Q '+(s.precio||0).toFixed(2)+'</td>'
-      +'<td style="text-align:right">Q '+(s.moLinea||0).toFixed(2)+'</td>'
-      +'<td style="text-align:right">Q '+((s.precio||0)+(s.moLinea||0)).toFixed(2)+'</td></tr>';
-  }).join('');
-  var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Cotizacion '+c.noCotizacion+'</title>'
-    +'<style>body{font-family:Arial,sans-serif;font-size:12px;padding:28px;max-width:720px;margin:0 auto}'
-    +'table{width:100%;border-collapse:collapse;margin:10px 0}td,th{border:1px solid #ddd;padding:6px 8px}'
-    +'th{background:#f5f5f5;font-weight:700}.hdr{display:flex;justify-content:space-between;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:12px}'
-    +'.total{font-weight:700;font-size:14px;text-align:right}@media print{button{display:none}}</style></head><body>'
-    +'<div class="hdr"><div>'+(logo?'<img src="'+logo+'" style="height:50px;margin-bottom:4px"><br>':'')
-    +'<strong style="font-size:16px">'+(cfg.nombre||'TALLER')+'</strong><br>'
-    +'NIT: '+(cfg.nit||'---')+' | Tel: '+(cfg.telefono||'---')+'</div>'
-    +'<div style="text-align:right"><strong style="font-size:16px">COTIZACION</strong><br>'
-    +'No. '+(c.noCotizacion||c.id)+'<br>'+fechaLegible(c.fecha)+'</div></div>'
-    +'<div style="margin-bottom:10px"><strong>Cliente:</strong> '+c.clienteNombre
-    +(c.placa?'<br><strong>Vehiculo:</strong> '+c.placa:'')+'</div>'
-    +'<table><thead><tr><th>Servicio</th><th>Horas</th><th>Materiales Q</th><th>Mano de obra Q</th><th>Total Q</th></tr></thead>'
-    +'<tbody>'+rows+'</tbody></table>'
-    +'<div class="total" style="margin-top:8px">'
-    +'<div>Subtotal: Q '+(c.subtotal||0).toFixed(2)+'</div>'
-    +'<div>IVA 12%: Q '+(c.iva||0).toFixed(2)+'</div>'
-    +'<div style="font-size:16px;border-top:2px solid #111;padding-top:6px">TOTAL: Q '+(c.totalConIVA||0).toFixed(2)+'</div></div>'
-    +(c.notas?'<div style="margin-top:10px;font-size:11px;color:#555">Notas: '+c.notas+'</div>':'')
-    +'<div style="margin-top:30px;font-size:11px;color:#555">Esta cotizacion tiene validez de 15 dias. '+(cfg.piePagina||'')+'</div>'
-    +'</body></html>';
-  w.document.write(html);w.document.close();setTimeout(function(){w.print();},400);
-}
-
-
-
-// ---- MODULO: BUDGET / PRESUPUESTO ----
-async function renderBudget(content, actions) {
-  var repuestos=await dbGetAll('repuestos');
-  var insumos=await dbGetAll('insumos');
-  var cfg=await dbGet('config','taller')||{};
-  var tarifa=cfg.tarifaHora||150;
-
-  content.innerHTML='<div class="section-title">Budget / Presupuesto de Mantenimiento</div>'
-    +'<div class="section-sub">Calcula el costo de servicios para campanas de captacion y publicidad</div>'
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">'
-
-    // Panel izquierdo: configuracion
-    +'<div>'
-    +'<div class="card"><div class="card-title" style="margin-bottom:12px">Parametros del presupuesto</div>'
-    +'<div class="form-group"><label>Nombre del paquete / servicio</label><input id="bg_nom" placeholder="Ej: Mantenimiento preventivo basico" value="Mantenimiento preventivo"></div>'
-    +'<div class="form-group"><label>Tipo de vehiculo</label>'
-    +'<select id="bg_tipo" onchange="recalcBudget()"><option value="sedan">Sedan</option><option value="pickup">Pickup / SUV</option><option value="camion">Camion / Furgon</option></select></div>'
-    +'<div class="divider"></div>'
-    +'<div class="card-title" style="margin-bottom:8px">Margenes de ganancia</div>'
-    +'<div class="form-row form-row-2">'
-    +'<div class="form-group"><label>Margen mano de obra (%)</label>'
-    +'<input id="bg_mmo" type="number" value="40" min="20" max="200" oninput="recalcBudget()">'
-    +'<div class="form-hint">Minimo recomendado: 20%</div></div>'
-    +'<div class="form-group"><label>Margen repuestos/insumos (%)</label>'
-    +'<input id="bg_mrep" type="number" value="30" min="20" max="200" oninput="recalcBudget()">'
-    +'<div class="form-hint">Minimo legal: 20%</div></div>'
-    +'</div>'
-    +'<div class="divider"></div>'
-    +'<div class="card-title" style="margin-bottom:8px">Mano de obra</div>'
-    +'<div id="bg_mo_list">'
-    +'<div style="display:grid;grid-template-columns:2fr 1fr;gap:6px;margin-bottom:6px"><input placeholder="Concepto" id="mo1_c" value="Cambio de aceite" style="font-size:12px"><input type="number" placeholder="Horas" id="mo1_h" value="0.5" min="0.25" step="0.25" oninput="recalcBudget()" style="font-size:12px"></div>'
-    +'<div style="display:grid;grid-template-columns:2fr 1fr;gap:6px;margin-bottom:6px"><input placeholder="Concepto" id="mo2_c" value="Filtros" style="font-size:12px"><input type="number" placeholder="Horas" id="mo2_h" value="0.25" min="0.25" step="0.25" oninput="recalcBudget()" style="font-size:12px"></div>'
-    +'<div style="display:grid;grid-template-columns:2fr 1fr;gap:6px;margin-bottom:6px"><input placeholder="Concepto" id="mo3_c" value="Revision general" style="font-size:12px"><input type="number" placeholder="Horas" id="mo3_h" value="0.5" min="0.25" step="0.25" oninput="recalcBudget()" style="font-size:12px"></div>'
-    +'</div>'
-    +'<div class="divider"></div>'
-    +'<div class="card-title" style="margin-bottom:8px">Repuestos e insumos (costo de compra)</div>'
-    +'<div id="bg_rep_list">'
-    +'<div style="display:grid;grid-template-columns:2fr 1fr;gap:6px;margin-bottom:6px"><input placeholder="Producto" id="r1_n" value="Aceite motor (4L)" style="font-size:12px"><input type="number" placeholder="Costo Q" id="r1_c" value="120" min="0" step="0.01" oninput="recalcBudget()" style="font-size:12px"></div>'
-    +'<div style="display:grid;grid-template-columns:2fr 1fr;gap:6px;margin-bottom:6px"><input placeholder="Producto" id="r2_n" value="Filtro de aceite" style="font-size:12px"><input type="number" placeholder="Costo Q" id="r2_c" value="35" min="0" step="0.01" oninput="recalcBudget()" style="font-size:12px"></div>'
-    +'<div style="display:grid;grid-template-columns:2fr 1fr;gap:6px;margin-bottom:6px"><input placeholder="Producto" id="r3_n" value="Filtro de aire" style="font-size:12px"><input type="number" placeholder="Costo Q" id="r3_c" value="45" min="0" step="0.01" oninput="recalcBudget()" style="font-size:12px"></div>'
-    +'</div>'
-    +'</div></div>'
-
-    // Panel derecho: resultado
-    +'<div>'
-    +'<div class="card" id="bg_resultado"><div class="text-muted text-center" style="padding:20px">Configura los parametros para ver el presupuesto</div></div>'
-    +'<div class="card">'
-    +'<div class="card-title" style="margin-bottom:10px">Acciones</div>'
-    +'<div style="display:grid;gap:8px">'
-    +'<button class="btn btn-primary" onclick="recalcBudget()">Recalcular</button>'
-    +'<button class="btn btn-secondary" onclick="imprimirBudget()">Imprimir presupuesto</button>'
-    +'<button class="btn btn-green" onclick="imprimirPublicidad()">Generar publicidad / flyer</button>'
-    +'</div></div>'
-    +'</div>'
-
-    +'</div>';
-
-  setTimeout(recalcBudget, 100);
-}
-
-function recalcBudget(){
-  var mmoMarg=(parseFloat(document.getElementById('bg_mmo').value)||40)/100;
-  var repMarg=(parseFloat(document.getElementById('bg_mrep').value)||30)/100;
-  var cfg_tar=150;
-
-  // Mano de obra
-  var moItems=[];
-  for(var i=1;i<=3;i++){
-    var con=(document.getElementById('mo'+i+'_c')||{}).value||'';
-    var hrs=parseFloat((document.getElementById('mo'+i+'_h')||{}).value)||0;
-    if(con&&hrs>0){
-      var costoMO=hrs*cfg_tar;
-      var precioMO=costoMO*(1+mmoMarg);
-      moItems.push({con:con,hrs:hrs,costo:costoMO,precio:precioMO});
-    }
-  }
-  // Repuestos
-  var repItems=[];
-  for(var j=1;j<=3;j++){
-    var nom=(document.getElementById('r'+j+'_n')||{}).value||'';
-    var cost=parseFloat((document.getElementById('r'+j+'_c')||{}).value)||0;
-    if(nom&&cost>0){
-      var precioR=cost*(1+repMarg);
-      repItems.push({nom:nom,costo:cost,precio:precioR});
-    }
-  }
-
-  var totCostoMO=moItems.reduce(function(a,m){return a+m.costo;},0);
-  var totPrecioMO=moItems.reduce(function(a,m){return a+m.precio;},0);
-  var totCostoRep=repItems.reduce(function(a,r){return a+r.costo;},0);
-  var totPrecioRep=repItems.reduce(function(a,r){return a+r.precio;},0);
-  var totCosto=totCostoMO+totCostoRep;
-  var totPrecio=totPrecioMO+totPrecioRep;
-  var iva=totPrecio*0.12;
-  var totalFinal=totPrecio+iva;
-  var utilidad=totPrecio-totCosto;
-  var margenReal=totPrecio>0?((utilidad/totPrecio)*100).toFixed(1):0;
-
-  var alertMarg=(mmoMarg*100)<20||( repMarg*100)<20
-    ?'<div class="alert alert-red" style="font-size:11px">Margen por debajo del minimo del 20%</div>':
-    '<div class="alert alert-green" style="font-size:11px">Margenes dentro del rango recomendado</div>';
-
-  var moRows=moItems.map(function(m){
-    return '<tr><td>'+m.con+'</td><td class="td-mono" style="text-align:right">'+m.hrs+'h</td>'
-      +'<td class="td-mono" style="text-align:right;color:var(--text3)">Q '+m.costo.toFixed(2)+'</td>'
-      +'<td class="td-mono" style="text-align:right;color:var(--green)">Q '+m.precio.toFixed(2)+'</td></tr>';
-  }).join('');
-  var repRows=repItems.map(function(r){
-    return '<tr><td>'+r.nom+'</td><td></td>'
-      +'<td class="td-mono" style="text-align:right;color:var(--text3)">Q '+r.costo.toFixed(2)+'</td>'
-      +'<td class="td-mono" style="text-align:right;color:var(--green)">Q '+r.precio.toFixed(2)+'</td></tr>';
-  }).join('');
-
-  var el=document.getElementById('bg_resultado');if(!el)return;
-  el.innerHTML='<div class="card-title" style="margin-bottom:10px">Presupuesto: '+($v('bg_nom')||'Servicio')+'</div>'
-    +alertMarg
-    +'<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px">'
-    +'<thead><tr><th style="text-align:left;border-bottom:1px solid var(--border);padding:4px 0">Concepto</th>'
-    +'<th style="border-bottom:1px solid var(--border);padding:4px 0">Det.</th>'
-    +'<th style="text-align:right;border-bottom:1px solid var(--border);padding:4px 0">Costo</th>'
-    +'<th style="text-align:right;border-bottom:1px solid var(--border);padding:4px 0">Precio venta</th></tr></thead>'
-    +'<tbody>'+moRows+repRows+'</tbody></table>'
-    +'<div style="background:var(--bg3);border-radius:6px;padding:12px">'
-    +'<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span>Total costo:</span><span class="td-mono text-red">Q '+totCosto.toFixed(2)+'</span></div>'
-    +'<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span>Subtotal venta:</span><span class="td-mono">Q '+totPrecio.toFixed(2)+'</span></div>'
-    +'<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;color:var(--accent)"><span>IVA 12%:</span><span class="td-mono">Q '+iva.toFixed(2)+'</span></div>'
-    +'<div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;color:var(--green);border-top:1px solid var(--border);padding-top:6px;margin-top:4px"><span>PRECIO FINAL:</span><span class="td-mono">Q '+totalFinal.toFixed(2)+'</span></div>'
-    +'<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--blue);padding-top:4px"><span>Utilidad neta:</span><span class="td-mono">Q '+utilidad.toFixed(2)+' ('+margenReal+'%)</span></div>'
-    +'</div>'
-    +'<div style="margin-top:10px;font-size:11px;color:var(--text3)">'
-    +'Margen MO: '+(mmoMarg*100).toFixed(0)+'% | Margen repuestos: '+(repMarg*100).toFixed(0)+'%'
-    +'</div>';
-
-  // Guardar en ventana para imprimir
-  window._budgetData={
-    nombre:$v('bg_nom'),moItems:moItems,repItems:repItems,
-    totCosto:totCosto,totPrecio:totPrecio,iva:iva,totalFinal:totalFinal,
-    utilidad:utilidad,margenReal:margenReal,
-    mmoMarg:(mmoMarg*100).toFixed(0),repMarg:(repMarg*100).toFixed(0)
-  };
-}
-
-async function imprimirBudget(){
-  var d=window._budgetData;if(!d){toast('Recalcula primero','amber');return;}
-  var cfg=await dbGet('config','taller')||{};
-  var logo=localStorage.getItem('tpgt_logo')||'';
-  var w=window.open('','_blank');
-  var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Budget</title>'
-    +'<style>body{font-family:Arial,sans-serif;font-size:12px;padding:28px;max-width:600px;margin:0 auto}'
-    +'table{width:100%;border-collapse:collapse}td,th{border:1px solid #ddd;padding:5px 8px}'
-    +'th{background:#f5f5f5}.total{font-weight:700;font-size:14px}@media print{button{display:none}}</style></head><body>'
-    +'<div style="text-align:center;border-bottom:2px solid #111;padding-bottom:12px;margin-bottom:14px">'
-    +(logo?'<img src="'+logo+'" style="height:50px;margin-bottom:6px"><br>':'')
-    +'<strong style="font-size:18px">'+(cfg.nombre||'TALLER')+'</strong><br>'
-    +'<span style="font-size:11px;color:#555">NIT: '+(cfg.nit||'---')+' | Tel: '+(cfg.telefono||'---')+'</span></div>'
-    +'<h2 style="text-align:center;margin-bottom:12px">PRESUPUESTO: '+d.nombre+'</h2>'
-    +'<table><thead><tr><th>Concepto</th><th>Detalle</th><th style="text-align:right">Precio venta Q</th></tr></thead><tbody>'
-    +d.moItems.map(function(m){return '<tr><td>'+m.con+'</td><td style="text-align:center">'+m.hrs+'h</td><td style="text-align:right">'+m.precio.toFixed(2)+'</td></tr>';}).join('')
-    +d.repItems.map(function(r){return '<tr><td>'+r.nom+'</td><td></td><td style="text-align:right">'+r.precio.toFixed(2)+'</td></tr>';}).join('')
-    +'</tbody></table>'
-    +'<div style="text-align:right;margin-top:8px">'
-    +'<div>Subtotal: Q '+d.totPrecio.toFixed(2)+'</div>'
-    +'<div>IVA 12%: Q '+d.iva.toFixed(2)+'</div>'
-    +'<div class="total" style="font-size:16px;border-top:2px solid #111;padding-top:6px">TOTAL: Q '+d.totalFinal.toFixed(2)+'</div></div>'
-    +'<div style="margin-top:16px;font-size:11px;color:#555;text-align:center">'+(cfg.piePagina||'')+'</div>'
-    +'</body></html>';
-  w.document.write(html);w.document.close();setTimeout(function(){w.print();},400);
-}
-
-async function imprimirPublicidad(){
-  var d=window._budgetData;if(!d){toast('Recalcula primero','amber');return;}
-  var cfg=await dbGet('config','taller')||{};
-  var logo=localStorage.getItem('tpgt_logo')||'';
-  var w=window.open('','_blank');
-  var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Publicidad</title>'
-    +'<style>body{font-family:Arial,sans-serif;background:#fff;margin:0;padding:0}'
-    +'.flyer{max-width:600px;margin:0 auto;border:4px solid #e8a820;border-radius:12px;overflow:hidden}'
-    +'.header{background:#111;color:#fff;text-align:center;padding:24px}'
-    +'.logo{height:70px;margin-bottom:8px}'
-    +'.titulo{font-size:24px;font-weight:900;color:#e8a820;margin-top:6px}'
-    +'.precio{background:#e8a820;text-align:center;padding:20px}'
-    +'.precio .monto{font-size:48px;font-weight:900;color:#111}'
-    +'.precio .label{font-size:14px;color:#333;margin-top:4px}'
-    +'.incluye{padding:20px;background:#f9f9f9}'
-    +'.incluye h3{font-size:14px;font-weight:700;margin-bottom:10px;color:#333}'
-    +'.item{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;border-bottom:1px solid #eee}'
-    +'.check{color:#4caf7d;font-size:16px;font-weight:700}'
-    +'.footer{background:#111;color:#e8a820;text-align:center;padding:14px;font-size:12px}'
-    +'@media print{body{margin:0}button{display:none}@page{margin:5mm}}</style></head><body>'
-    +'<div class="flyer">'
-    +'<div class="header">'
-    +(logo?'<img src="'+logo+'" class="logo"><br>':'')
-    +'<div style="font-size:20px;font-weight:900;color:#fff">'+(cfg.nombre||'TALLER PRO GT')+'</div>'
-    +'<div class="titulo">'+d.nombre+'</div>'
-    +'</div>'
-    +'<div class="precio">'
-    +'<div style="font-size:14px;color:#333;margin-bottom:4px">Precio especial</div>'
-    +'<div class="monto">Q '+d.totalFinal.toFixed(2)+'</div>'
-    +'<div class="label">IVA incluido</div>'
-    +'</div>'
-    +'<div class="incluye">'
-    +'<h3>Incluye:</h3>'
-    +d.moItems.map(function(m){return '<div class="item"><span class="check">&#10003;</span>'+m.con+'</div>';}).join('')
-    +d.repItems.map(function(r){return '<div class="item"><span class="check">&#10003;</span>'+r.nom+'</div>';}).join('')
-    +'</div>'
-    +'<div class="footer">'
-    +'Tel: '+(cfg.telefono||'---')+' | '+(cfg.direccion||'')+'<br>'
-    +'NIT: '+(cfg.nit||'---')
-    +'</div>'
-    +'</div>'
-    +'</body></html>';
-  w.document.write(html);w.document.close();setTimeout(function(){w.print();},400);
-}
-
-// ---- DASHBOARD FLOTA ----
-async function renderFlota(content, actions) {
-  var contratos=await dbGetAll('contratos_flota');
-  var clientes=await dbGetAll('clientes');
-  var vehiculos=await dbGetAll('vehiculos');
-  var ordenes=await dbGetAll('ordenes');
-  var hoy=new Date();hoy.setHours(0,0,0,0);
-
-  actions.innerHTML='<button class="btn btn-primary" onclick="modalContratoFlota()">+ Nuevo contrato</button>'
-    +' <button class="btn btn-secondary" onclick="verListaContratos()">Ver lista</button>';
-
-  var activos=contratos.filter(function(ct){return ct.estado==='activo';});
-  var ingresosMes=activos.reduce(function(a,ct){return a+(ct.tarifaMensual||0);},0);
-  var totalVehs=activos.reduce(function(a,ct){return a+(ct.vehiculosIds?ct.vehiculosIds.length:0);},0);
-
-  // Vehiculos de flota con alertas
-  var todosVehsFlota=[];
-  activos.forEach(function(ct){
-    (ct.vehiculosIds||[]).forEach(function(vid){
-      var v=vehiculos.find(function(x){return x.id===vid;});
-      if(v){
-        var dias=v.proximoServicio?Math.round((new Date(v.proximoServicio+'T00:00:00')-hoy)/86400000):null;
-        todosVehsFlota.push({veh:v,contrato:ct,diasServicio:dias});
-      }
-    });
-  });
-
-  var vencidos=todosVehsFlota.filter(function(x){return x.diasServicio!==null&&x.diasServicio<0;});
-  var proximos7=todosVehsFlota.filter(function(x){return x.diasServicio!==null&&x.diasServicio>=0&&x.diasServicio<=7;});
-  var otsMes=ordenes.filter(function(o){return o.fecha&&o.fecha.startsWith(today().slice(0,7));});
-  var facturacionMes=otsMes.reduce(function(a,o){return a+(o.totalConIVA||0);},0);
-
-  // Tarjetas por contrato
-  var cards=activos.map(function(ct){
-    var cli=clientes.find(function(c){return c.id===ct.clienteId;});
-    var vehs=(ct.vehiculosIds||[]).map(function(vid){return vehiculos.find(function(v){return v.id===vid;});}).filter(Boolean);
-    var vVenc=vehs.filter(function(v){return v.proximoServicio&&Math.round((new Date(v.proximoServicio+'T00:00:00')-hoy)/86400000)<0;});
-    var vProx=vehs.filter(function(v){return v.proximoServicio&&Math.round((new Date(v.proximoServicio+'T00:00:00')-hoy)/86400000)>=0&&Math.round((new Date(v.proximoServicio+'T00:00:00')-hoy)/86400000)<=7;});
-    return '<div class="card" style="border-left:3px solid var(--'+(vVenc.length>0?'red':vProx.length>0?'amber':'green')+')">'
-      +'<div class="card-header"><span class="card-title">'+ct.nombre+'</span>'
-      +'<span class="badge badge-'+(vVenc.length>0?'red':vProx.length>0?'amber':'green')+'">'
-      +(vVenc.length>0?vVenc.length+' vencidos':vProx.length>0?vProx.length+' proximos':'Al dia')+'</span></div>'
-      +'<div style="font-size:12px;color:var(--text2);margin-bottom:8px">'+(cli?cli.nombre:'---')+' | '+ct.tipoContrato+'</div>'
-      +'<div class="stat-grid" style="grid-template-columns:repeat(3,1fr)">'
-      +'<div class="stat-card"><div class="stat-label">Vehiculos</div><div class="stat-value" style="font-size:16px">'+vehs.length+'</div></div>'
-      +'<div class="stat-card stat-green"><div class="stat-label">Tarifa/mes</div><div class="stat-value" style="font-size:14px">'+fmt(ct.tarifaMensual||0)+'</div></div>'
-      +'<div class="stat-card '+(vVenc.length>0?'stat-red':vProx.length>0?'stat-amber':'')+'"><div class="stat-label">Prox. servicio</div><div class="stat-value" style="font-size:14px">'+(vVenc.length>0?vVenc.length+' venc.':vProx.length>0?vProx.length+' prox.':'OK')+'</div></div>'
-      +'</div>'
-      +'<div style="display:flex;gap:6px;margin-top:6px">'
-      +'<button class="btn btn-sm btn-blue" onclick="verDetalleContrato('+ct.id+')">Detalle</button>'
-      +'<button class="btn btn-sm btn-green" onclick="programarMantenimientoFlota('+ct.id+')">Programar</button>'
-      +'</div></div>';
-  }).join('');
-
-  content.innerHTML='<div class="section-title">Dashboard de Flota</div>'
-    +'<div class="stat-grid">'
-    +'<div class="stat-card stat-green"><div class="stat-label">Contratos activos</div><div class="stat-value">'+activos.length+'</div></div>'
-    +'<div class="stat-card stat-green"><div class="stat-label">Ingreso mensual flota</div><div class="stat-value">'+fmt(ingresosMes)+'</div></div>'
-    +'<div class="stat-card stat-blue"><div class="stat-label">Vehiculos en contrato</div><div class="stat-value">'+totalVehs+'</div></div>'
-    +'<div class="stat-card stat-red"><div class="stat-label">Servicios vencidos</div><div class="stat-value">'+vencidos.length+'</div></div>'
-    +'<div class="stat-card stat-amber"><div class="stat-label">Proximos 7 dias</div><div class="stat-value">'+proximos7.length+'</div></div>'
-    +'<div class="stat-card stat-green"><div class="stat-label">Facturacion mes</div><div class="stat-value" style="font-size:14px">'+fmt(facturacionMes)+'</div></div>'
-    +'</div>'
-    +(vencidos.length?'<div class="alert alert-red" style="font-size:12px"><strong>'+vencidos.length+' vehiculos con servicio vencido:</strong> '+vencidos.map(function(x){return x.veh.placa;}).join(', ')+'</div>':'')
-    +(proximos7.length?'<div class="alert alert-amber" style="font-size:12px"><strong>Proximos 7 dias:</strong> '+proximos7.map(function(x){return x.veh.placa+' ('+x.diasServicio+'d)';}).join(', ')+'</div>':'')
-    +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px">'
-    +(cards||'<div class="text-muted text-center" style="padding:20px">Sin contratos activos. Crea uno con el boton + Nuevo contrato</div>')
-    +'</div>';
-}
-
-async function verListaContratos(){
-  var contratos=await dbGetAll('contratos_flota');
-  var clientes=await dbGetAll('clientes');
-  var vehiculos=await dbGetAll('vehiculos');
-  var rows=contratos.map(function(ct){
-    var cli=clientes.find(function(c){return c.id===ct.clienteId;});
-    var vn=ct.vehiculosIds?ct.vehiculosIds.length:0;
-    return '<tr>'
-      +'<td><strong>'+ct.nombre+'</strong></td>'
-      +'<td>'+(cli?cli.nombre:'---')+'</td>'
-      +'<td><span class="badge badge-gray">'+(ct.tipoContrato||'---')+'</span></td>'
-      +'<td class="td-mono">'+vn+' vehs</td>'
-      +'<td class="td-mono">'+fmt(ct.tarifaMensual||0)+'</td>'
-      +'<td>'+fechaLegible(ct.fechaFin)+'</td>'
-      +'<td><span class="badge badge-'+(ct.estado==='activo'?'green':'gray')+'">'+ct.estado+'</span></td>'
-      +'<td><div class="flex gap-1">'
-      +'<button class="btn btn-sm btn-blue" onclick="cerrarModal(\'lista_ct\');verDetalleContrato('+ct.id+')">Detalle</button>'
-      +'<button class="btn btn-sm btn-secondary" onclick="cerrarModal(\'lista_ct\');modalContratoFlota('+ct.id+')">Editar</button>'
-      +'</div></td></tr>';
-  }).join('');
-  openModal('lista_ct','Todos los contratos de flota',
-    '<div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Cliente</th><th>Tipo</th><th>Flota</th><th>Tarifa</th><th>Vence</th><th>Estado</th><th>Acciones</th></tr></thead>'
-    +'<tbody>'+(rows||'<tr><td colspan="8" class="text-center text-muted" style="padding:16px">Sin contratos</td></tr>')+'</tbody></table></div>',
-    function(){cerrarModal('lista_ct');},false);
-}
-
-// ================================================================
-// MODULO B v3.3
-// 1. Log de auditoria (solo admin)
-// 2. Inline creation mejorado (cliente+vehiculo en OT)
-// 3. Dashboard Facturas, Cotizaciones, Budget
-// 4. Servicios externos (torno, rectificadora, etc.)
-// 5. RRHH: capacitacion y aumentos salariales
-// ================================================================
-
-// ================================================================
-// 1. AUDITORIA LOG
-// ================================================================
-async function cotizacionAOrden(cotId) {
-  var c = await dbGet('cotizaciones', cotId);
-  if (!c) return;
-
-  var clientes  = await dbGetAll('clientes');
-  var vehiculos = await dbGetAll('vehiculos');
-  var empleados = await dbGetAll('empleados');
-  var cfg       = await dbGet('config','taller') || {};
-
-  // Marcar cotizacion como aprobada
-  c.estado = 'aprobada';
-  await dbPut('cotizaciones', c);
-
-  // Construir lineas de OT desde la cotizacion
-  var moItems = (c.servicios||[]).map(function(s){
-    return {concepto:s.label, horas:s.horas||1, tarifa:c.tarifaHora||cfg.tarifaHora||150, descuento:0};
-  });
-  var noOT = 'OT-'+Date.now().toString(36).toUpperCase();
-
-  var cliOpts = clientes.map(function(cl){
-    return '<option value="'+cl.id+'"'+(c.clienteId===cl.id?' selected':'')+'>'+cl.nombre+'</option>';
-  }).join('');
-  var vehOpts = vehiculos.filter(function(v){return v.clienteId===c.clienteId;}).map(function(v){
-    return '<option value="'+v.id+'"'+(c.vehiculoId===v.id?' selected':'')+'>'+v.placa+' - '+v.marca+' '+v.modelo+'</option>';
-  }).join('');
-  var tecOpts = '<option value="">Seleccionar...</option>'
-    + empleados.filter(function(e){return e.activo!==false;}).map(function(e){
-        return '<option value="'+e.nombre+'">'+e.nombre+'</option>';
-      }).join('');
-
-  openModal('cot2ot','Crear OT desde Cotizacion: '+c.noCotizacion,
-    '<div class="alert alert-green" style="font-size:11px">Cotizacion aprobada. Se creara una OT con los servicios cotizados.</div>'
-    +'<div class="form-row form-row-2">'
-    +'<div class="form-group"><label>No. OT</label><input id="c2o_no" value="'+noOT+'"></div>'
-    +'<div class="form-group"><label>Fecha</label><input id="c2o_fe" type="date" value="'+today()+'"></div>'
-    +'</div>'
-    +'<div class="form-row form-row-2">'
-    +'<div class="form-group"><label>Cliente</label><select id="c2o_cli">'+cliOpts+'</select></div>'
-    +'<div class="form-group"><label>Vehiculo</label><select id="c2o_veh">'+vehOpts+'</select></div>'
-    +'</div>'
-    +'<div class="form-row form-row-2">'
-    +'<div class="form-group"><label>Tecnico asignado</label><select id="c2o_tec">'+tecOpts+'</select></div>'
-    +'<div class="form-group"><label>Prioridad</label>'
-    +'<select id="c2o_pri"><option value="normal">Normal</option><option value="urgente">Urgente</option></select>'
-    +'</div></div>'
-    +'<div class="form-group"><label>Descripcion del trabajo</label>'
-    +'<textarea id="c2o_desc">'+(c.servicios||[]).map(function(s){return s.label;}).join(', ')+'</textarea></div>'
-    +'<div class="card" style="padding:10px;margin-top:4px">'
-    +'<div class="card-title" style="margin-bottom:6px">Servicios de la cotizacion</div>'
-    +(c.servicios||[]).map(function(s){
-      return '<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)">'
-        +'<span>'+s.label+'</span><span class="td-mono">'+s.horas+'h | Q'+( (s.precio||0)+(s.moLinea||0)).toFixed(2)+'</span></div>';
-    }).join('')
-    +'<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;padding:6px 0;border-top:2px solid var(--border);margin-top:4px">'
-    +'<span>Total cotizado:</span><span class="td-mono text-green">Q '+(c.totalConIVA||0).toFixed(2)+'</span></div>'
-    +'</div>',
-    async function(){
-      var cliId = parseInt($v('c2o_cli'));
-      var vehId = parseInt($v('c2o_veh'));
-      var cli = clientes.find(function(cl){return cl.id===cliId;});
-      var veh = vehiculos.find(function(v){return v.id===vehId;});
-      var desc = $v('c2o_desc').trim();
-      var tec  = $v('c2o_tec');
-      var noOT2 = $v('c2o_no').trim();
-      var tar = c.tarifaHora||cfg.tarifaHora||150;
-
-      // Calcular totales
-      var subMO = moItems.reduce(function(a,m){return a+m.horas*m.tarifa;},0);
-      var subIT = (c.servicios||[]).reduce(function(a,s){return a+(s.precio||0);},0);
-      var sub = parseFloat((subMO+subIT).toFixed(2));
-      var iva = parseFloat((sub*0.12).toFixed(2));
-      var tot = parseFloat((sub+iva).toFixed(2));
-
-      var otObj = {
-        noOT:noOT2, fecha:$v('c2o_fe'),
-        tipoServicio:'correctivo',
-        clienteId:cliId, clienteNombre:cli?cli.nombre:'',
-        vehiculoId:vehId, placa:veh?veh.placa:'',
-        tecnico:tec, estado:'nuevo',
-        prioridad:$v('c2o_pri'),
-        descripcion:desc,
-        manoObra:moItems,
-        items:[], otrosCargos:[],
-        cotizacionId:cotId, noCotizacion:c.noCotizacion,
-        subtotalMO:subMO, subtotalIT:subIT,
-        subtotal:sub, iva:iva, totalConIVA:tot,
-        createdAt:nowTs(), updatedAt:nowTs()
-      };
-      await dbAdd('ordenes', otObj);
-      cerrarModal('cot2ot');
-      toast('OT '+noOT2+' creada desde cotizacion '+c.noCotizacion,'green');
-      await navTo('ordenes');
-    }, true);
-}
-
-// ================================================================
-// 5. REPORTE GENERAL - SELECCION DE RUBROS MEJORADA
-// ================================================================
-
-async

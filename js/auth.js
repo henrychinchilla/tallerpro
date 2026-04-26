@@ -1,7 +1,4 @@
-/* TallerPro GT — js/auth.js
-   Módulo independiente — cada archivo tiene funciones específicas
-   Para editar: modificar solo este archivo y recargar
-*/
+/* TallerPro GT — auth.js */
 
 function getInstallId() {
   var id = localStorage.getItem('tpgt_install_id');
@@ -673,7 +670,223 @@ function bloqueadoEnDemo(modulo) {
   return DEMO_BLOQUEADOS.includes(modulo);
 }
 
-function loginUsuario(username,password){
+function resetDB(){indexedDB.deleteDatabase(DB_NAME);location.reload();}
+window.onerror=function(msg,src,line,col,err){
+  document.body.innerHTML='<div style="background:#1a1a1a;color:#e05a4e;padding:30px;font-family:monospace;font-size:13px;min-height:100vh">'
+    +'<h2 style="color:#e8a820;margin-bottom:16px">TallerPro GT - Error</h2>'
+    +'<div style="margin-bottom:8px"><b>Mensaje:</b> '+msg+'</div>'
+    +'<div style="margin-bottom:8px"><b>Linea:</b> '+line+' | Col: '+col+'</div>'
+    +'<div style="color:#9a9690;font-size:11px;margin-top:16px">Abre F12 Console para mas detalles</div>'
+    +'<button onclick="resetDB()" '
+    +'style="margin-top:20px;background:#e8a820;color:#000;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;font-size:14px">'
+    +'Reiniciar base de datos</button></div>';
+  return true;
+};
+// DB_NAME depende del taller_id guardado en localStorage (aislamiento por taller)
+var _tid = localStorage.getItem('tpgt_taller_id') || '';
+var DB_NAME = _tid ? ('TallerProDB_' + _tid) : 'TallerProDB';
+const DB_VERSION=16;let db;
+const STORES={
+  usuarios:{keyPath:'id',autoIncrement:true},
+  sesion:{keyPath:'key'},
+  clientes:{keyPath:'id',autoIncrement:true},
+  vehiculos:{keyPath:'id',autoIncrement:true},
+  repuestos:{keyPath:'id',autoIncrement:true},
+  insumos:{keyPath:'id',autoIncrement:true},
+  recepciones:{keyPath:'id',autoIncrement:true},
+  ordenes:{keyPath:'id',autoIncrement:true},
+  facturas:{keyPath:'id',autoIncrement:true},
+  activos:{keyPath:'id',autoIncrement:true},
+  costos:{keyPath:'id',autoIncrement:true},
+  alertas:{keyPath:'id',autoIncrement:true},
+  cuentas_bancarias:{keyPath:'id',autoIncrement:true},
+  movimientos_bancarios:{keyPath:'id',autoIncrement:true},
+  servicios:{keyPath:'id',autoIncrement:true},
+  llamadas_atencion:{keyPath:'id',autoIncrement:true},
+  vacaciones_emp:{keyPath:'id',autoIncrement:true},
+  documentos_emp:{keyPath:'id',autoIncrement:true},
+  historial_pagos:{keyPath:'id',autoIncrement:true},
+  contratos_flota:{keyPath:'id',autoIncrement:true},
+  viaticos:{keyPath:'id',autoIncrement:true},
+  whatsapp_logs:{keyPath:'id',autoIncrement:true},
+  auditoria:{keyPath:'id',autoIncrement:true},
+  servicios_externos:{keyPath:'id',autoIncrement:true},
+  capacitaciones:{keyPath:'id',autoIncrement:true},
+  aumentos_salariales:{keyPath:'id',autoIncrement:true},
+  envios:{keyPath:'id',autoIncrement:true},
+  cotizaciones:{keyPath:'id',autoIncrement:true},
+  empleados:{keyPath:'id',autoIncrement:true},
+  nomina:{keyPath:'id',autoIncrement:true},
+  proveedores:{keyPath:'id',autoIncrement:true},
+  asientos:{keyPath:'id',autoIncrement:true},
+  fotos:{keyPath:'id',autoIncrement:true},
+  kpi:{keyPath:'id',autoIncrement:true},
+  config:{keyPath:'key'},
+  bodegas:{keyPath:'id',autoIncrement:true},
+  traslados:{keyPath:'id',autoIncrement:true}
+};
+
+function initDB(){
+  return new Promise((res,rej)=>{
+    const req=indexedDB.open(DB_NAME,DB_VERSION);
+    req.onupgradeneeded=e=>{
+      const d=e.target.result;
+      Object.entries(STORES).forEach(([name,opts])=>{
+        if(!d.objectStoreNames.contains(name)){
+          const s=d.createObjectStore(name,opts);
+          if(name==='vehiculos')s.createIndex('clienteId','clienteId',{unique:false});
+          if(name==='facturas')s.createIndex('fecha','fecha',{unique:false});
+          if(name==='ordenes')s.createIndex('estado','estado',{unique:false});
+          if(name==='nomina')s.createIndex('empleadoId','empleadoId',{unique:false});
+          if(name==='kpi')s.createIndex('empleadoId','empleadoId',{unique:false});
+        }
+      });
+    };
+    req.onsuccess=e=>{db=e.target.result;res(db);};
+    req.onerror=e=>rej(e.target.error);
+  });
+}
+
+function dbGet(store,key){return new Promise((r,j)=>{const tx=db.transaction(store,'readonly');tx.objectStore(store).get(key).onsuccess=e=>r(e.target.result);tx.onerror=e=>j(e)});}
+function dbGetAll(store){return new Promise((r,j)=>{const tx=db.transaction(store,'readonly');tx.objectStore(store).getAll().onsuccess=e=>r(e.target.result);tx.onerror=e=>j(e)});}
+function dbPut(store,obj){return new Promise((r,j)=>{const tx=db.transaction(store,'readwrite');tx.objectStore(store).put(obj).onsuccess=e=>r(e.target.result);tx.onerror=e=>j(e)});}
+function dbAdd(store,obj){return new Promise((r,j)=>{const tx=db.transaction(store,'readwrite');tx.objectStore(store).add(obj).onsuccess=e=>r(e.target.result);tx.onerror=e=>j(e)});}
+function dbDelete(store,key){return new Promise((r,j)=>{const tx=db.transaction(store,'readwrite');tx.objectStore(store).delete(key).onsuccess=()=>r();tx.onerror=e=>j(e)});}
+function dbGetByIndex(store,index,value){return new Promise((r,j)=>{const tx=db.transaction(store,'readonly');tx.objectStore(store).index(index).getAll(value).onsuccess=e=>r(e.target.result);tx.onerror=e=>j(e)});}
+
+
+/* ---- UTILIDADES ---- */
+const IVA=0.12,ISR=0.25,MARGEN_MIN=0.20;
+// Salarios minimos 2026 - Acuerdo Gubernativo 256-2025
+var SAL_MIN = {
+  CE1: {noAgricola:4002.28, agricola:3791.20, maquila:3409.73},
+  CE2: {noAgricola:3816.90, agricola:3625.89, maquila:3221.10}
+};
+
+const fmt=n=>`Q ${parseFloat(n||0).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+const fmtNum=n=>parseFloat(n||0).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2});
+const today=()=>new Date().toISOString().split('T')[0];
+const nowTs=()=>new Date().toISOString();
+const genId=p=>p+Date.now().toString(36).toUpperCase()+Math.random().toString(36).slice(2,5).toUpperCase();
+// ── Helpers de formulario (shorthand) ────────────────────────────
+var $v = function(id){ var el=document.getElementById(id); return el?el.value:''; };
+var $n = function(id){ return parseFloat($v(id))||0; };
+var $el = function(id){ return document.getElementById(id); };
+var $ch = function(id){ var el=document.getElementById(id); return el?el.checked:false; };
+
+
+/* ================================================================
+   UTILIDADES DE TELÉFONO - Formato Guatemala (+502)
+   ================================================================ */
+function normalizarTel(tel) {
+  if (!tel) return '';
+  // Quitar todo excepto dígitos y +
+  var clean = tel.replace(/[^\d+]/g,'');
+  // Si empieza con 502 sin +, agregar +
+  if (clean.startsWith('502') && !clean.startsWith('+')) clean = '+' + clean;
+  // Si es solo 8 dígitos (celular GT sin código), agregar +502
+  if (/^[3-9]\d{7}$/.test(clean)) clean = '+502' + clean;
+  // Si empieza con 0 quitar el 0 inicial (algunos escriben 0502...)
+  if (clean.startsWith('0502')) clean = '+' + clean.slice(1);
+  return clean;
+}
+
+function formatearTelDisplay(tel) {
+  if (!tel) return '';
+  var n = normalizarTel(tel);
+  // Guatemala: +502 XXXX-XXXX
+  if (n.startsWith('+502') && n.length === 12) {
+    return '+502 ' + n.slice(4,8) + '-' + n.slice(8,12);
+  }
+  return n;
+}
+
+function validarTel(tel) {
+  if (!tel) return true; // opcional
+  var n = normalizarTel(tel);
+  return n.startsWith('+') && n.length >= 10;
+}
+
+// Aplicar formato al salir del campo
+function onTelBlur(input) {
+  if (!input || !input.value.trim()) return;
+  var fmt = formatearTelDisplay(input.value.trim());
+  if (fmt) input.value = fmt;
+  if (!validarTel(input.value)) {
+    input.style.borderColor = 'var(--red)';
+    input.title = 'Formato inválido. Ej: +502 5555-0000';
+  } else {
+    input.style.borderColor = '';
+    input.title = '';
+  }
+}
+
+
+function toggleSelectAll(tbodyId, checkName) {
+  var checks = document.querySelectorAll('input[name="'+checkName+'"]');
+  var header = document.getElementById('chk_all_'+checkName);
+  checks.forEach(function(c){ c.checked = header ? header.checked : true; });
+}
+function getSelectedIds(checkName) {
+  return Array.from(document.querySelectorAll('input[name="'+checkName+'"]:checked'))
+    .map(function(c){ return parseInt(c.value); }).filter(Boolean);
+}
+
+function fechaLegible(s){
+  if(!s)return'—';
+  try{
+    var d=new Date(s+(s.length===10?'T00:00:00':''));
+    if(isNaN(d))return s;
+    var dd=String(d.getDate()).padStart(2,'0');
+    var mm=String(d.getMonth()+1).padStart(2,'0');
+    var yy=d.getFullYear();
+    return dd+'-'+mm+'-'+yy;
+  }catch(e){return s;}
+}
+function fechaLegibleCorta(s){
+  if(!s)return'—';
+  try{
+    var d=new Date(s+(s.length===10?'T00:00:00':''));
+    if(isNaN(d))return s;
+    var meses=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+    return String(d.getDate()).padStart(2,'0')+' '+meses[d.getMonth()]+' '+d.getFullYear();
+  }catch(e){return s;}
+}
+function addDays(ds,d){const dt=new Date(ds+'T00:00:00');dt.setDate(dt.getDate()+d);return dt.toISOString().split('T')[0];}
+function diasRestantes(ds){const d=new Date(ds+'T00:00:00');const n=new Date();n.setHours(0,0,0,0);return Math.round((d-n)/(864e5));}
+function hashSimple(s){let h=0;for(let i=0;i<s.length;i++){h=((h<<5)-h)+s.charCodeAt(i);h|=0;}return h.toString(16);}
+function numLetras(n){const e=Math.floor(n);const d=Math.round((n-e)*100);return`QUETZALES ${e.toLocaleString('es-GT')} CON ${d.toString().padStart(2,'0')}/100`;}
+
+function toast(msg,type='green'){
+  const t=document.createElement('div');
+  t.style.cssText=`position:fixed;bottom:24px;right:24px;z-index:9999;padding:11px 18px;border-radius:8px;font-size:13px;font-weight:500;background:var(--bg2);border:1px solid var(--border2);color:var(--text);box-shadow:0 4px 24px rgba(0,0,0,.5);transition:opacity .3s;display:flex;align-items:center;gap:8px`;
+  const icons={green:'\u2713',red:'\u2715',amber:'\u26A0',blue:'\u2139'};
+  t.innerHTML=`<span style="color:var(--${type})">${icons[type]||'\u2022'}</span>${msg}`;
+  document.body.appendChild(t);
+  setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),300);},2800);
+}
+
+/* ---- SESI\u00D3N / AUTH ---- */
+let sesionActual=null;
+
+const PERFILES={
+  admin:{label:'Administrador',color:'red',nivel:3,permisos:['todo']},
+  supervisor:{label:'Supervisor',color:'amber',nivel:2,permisos:['ordenes','clientes','vehiculos','repuestos','insumos','recepciones','facturas','proveedores','empleados','alertas','kpi']},
+  operador:{label:'Operador',color:'blue',nivel:1,permisos:['ordenes','clientes','vehiculos','recepciones','repuestos','insumos','alertas']}
+};
+
+function puedeAcceder(modulo){
+  if(!sesionActual)return false;
+  const p=PERFILES[sesionActual.perfil];
+  if(!p)return false;
+  if(p.permisos.includes('todo'))return true;
+  return p.permisos.includes(modulo);
+}
+
+function soloAdmin(){return sesionActual?.perfil==='admin';}
+function adminOSupervisor(){return sesionActual?.perfil==='admin'||sesionActual?.perfil==='supervisor';}
+
+async function loginUsuario(username,password){
   const usuarios=await dbGetAll('usuarios');
   const hash=hashSimple(password);
   const user=usuarios.find(u=>u.username===username&&u.passwordHash===hash&&u.activo);
@@ -1197,91 +1410,211 @@ async function doLogin(){
 }
 
 /* ---- DATOS DE FABRICANTES Y RECOMENDACIONES ---- */
-function genNumAnual(store, campo, prefijo) {
-  var anio = new Date().getFullYear();
-  var todos = await dbGetAll(store);
-  var pat = new RegExp('^' + prefijo + '-' + anio + '-');
-  var deEsteAnio = todos.filter(function(o){ return o[campo] && pat.test(o[campo]); });
-  var max = 0;
-  deEsteAnio.forEach(function(o) {
-    var partes = (o[campo]||'').split('-');
-    var num = parseInt(partes[partes.length-1]) || 0;
-    if (num > max) max = num;
-  });
-  return prefijo + '-' + anio + '-' + String(max + 1).padStart(6, '0');
-}
-
-async function genNumSecuencial(store, campo, prefijo) {
-  // Sin año — REP-00000001, INS-00000001
-  var todos = await dbGetAll(store);
-  var pat = new RegExp('^' + prefijo + '-\\d+$');
-  var max = 0;
-  todos.forEach(function(o) {
-    if (o[campo] && pat.test(o[campo])) {
-      var num = parseInt((o[campo]||'').split('-')[1]) || 0;
-      if (num > max) max = num;
-    }
-  });
-  return prefijo + '-' + String(max + 1).padStart(8, '0');
-}
-
-async function generarNumeroOT()  { return genNumAnual('ordenes', 'noOT', 'OT'); }
-async function generarNumeroREC() { return genNumAnual('recepciones', 'noRecepcion', 'REC'); }
-async function generarNumeroCOT() { return genNumAnual('cotizaciones', 'noCotizacion', 'COT'); }
-async function generarNumeroREP() { return genNumSecuencial('repuestos', 'codigo', 'REP'); }
-async function generarNumeroINS() { return genNumSecuencial('insumos', 'codigo', 'INS'); }
-
-
-
-async function cargarUsuariosLicencia() {
-  var panel = document.getElementById('lic_usuarios_panel');
-  if (!panel) return;
-  var usuarios = await dbGetAll('usuarios');
-  var activos = usuarios.filter(function(u){ return u.activo !== false && !u.esDemo; });
-  var tallerInfo = getInfoTaller();
-  if (!activos.length) {
-    panel.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:8px">No hay usuarios registrados.</div>';
-    return;
+const FABRICANTES_DB={
+  Toyota:{
+    modelos:['Hilux','Corolla','RAV4','Fortuner','Land Cruiser','Yaris','Camry','Prius'],
+    intervalos:{aceite:5000,filtroAire:20000,filtroCombustible:40000,bujias:40000,correa:90000,frenos:30000,refrigerante:40000},
+    aceiteRecomendado:'5W-30 o 10W-30 sint\u00E9tico (API SN/SP)',
+    filtroAceite:'Toyota Part 90915-YZZD1 o equivalente',
+    observaciones:'Revisar nivel de fluido de transmisi\u00F3n cada 40,000 km. Calibrar v\u00E1lvulas cada 60,000 km en motores 2TR.'
+  },
+  Nissan:{
+    modelos:['Frontier','Pathfinder','Sentra','Versa','Altima','NP300','Urvan'],
+    intervalos:{aceite:5000,filtroAire:15000,filtroCombustible:30000,bujias:30000,correa:80000,frenos:25000,refrigerante:40000},
+    aceiteRecomendado:'5W-30 o 5W-40 (API SN)',
+    filtroAceite:'Nissan 15208-65F0E o equivalente Fram PH6607',
+    observaciones:'Verificar sensor MAF cada 30,000 km. Aceite CVT Nissan NS-3 solo en transmisiones autom\u00E1ticas.'
+  },
+  Chevrolet:{
+    modelos:['Silverado','Colorado','Suburban','Traverse','Cruze','Spark','Captiva','D-MAX'],
+    intervalos:{aceite:5000,filtroAire:20000,filtroCombustible:40000,bujias:40000,correa:100000,frenos:30000,refrigerante:50000},
+    aceiteRecomendado:'Dexos 1 Gen2 5W-30 (obligatorio en motores Ecotec)',
+    filtroAceite:'AC Delco PF48E o equivalente',
+    observaciones:'No mezclar refrigerante Dex-Cool con refrigerante verde. Revisar m\u00F3dulo de admisi\u00F3n de aire cada 40,000 km.'
+  },
+  Ford:{
+    modelos:['F-150','F-350','Explorer','Ranger','Escape','EcoSport','Fusion','Transit'],
+    intervalos:{aceite:8000,filtroAire:20000,filtroCombustible:50000,bujias:60000,correa:150000,frenos:30000,refrigerante:80000},
+    aceiteRecomendado:'5W-20 o 5W-30 Motorcraft (API SP)',
+    filtroAceite:'Motorcraft FL-500S o equivalente',
+    observaciones:'Motor EcoBoost requiere atenci\u00F3n especial a refrigeraci\u00F3n. Revisar turbocargador cada 60,000 km.'
+  },
+  Honda:{
+    modelos:['CRV','Civic','Pilot','Accord','Fit','HRV','Odyssey','Ridgeline'],
+    intervalos:{aceite:5000,filtroAire:30000,filtroCombustible:45000,bujias:45000,correa:105000,frenos:30000,refrigerante:50000},
+    aceiteRecomendado:'0W-20 o 5W-20 (Honda Genuine o API SN PLUS)',
+    filtroAceite:'Honda 15400-PLM-A02 o equivalente Fram CH9018',
+    observaciones:'El aceite 0W-20 es mandatorio en modelos i-VTEC recientes. No usar aceite mineral en motores de alta compresi\u00F3n Honda.'
+  },
+  Hyundai:{
+    modelos:['Tucson','Santa Fe','Accent','Elantra','Creta','H350','Porter','Sonata'],
+    intervalos:{aceite:5000,filtroAire:30000,filtroCombustible:40000,bujias:40000,correa:90000,frenos:30000,refrigerante:40000},
+    aceiteRecomendado:'5W-30 o 5W-40 (API SN/SP)',
+    filtroAceite:'Hyundai 26300-35503 o equivalente',
+    observaciones:'Revisar tensador de cadena de distribuci\u00F3n en motores Theta II. Inspecci\u00F3n de frenos de mano electr\u00F3nico cada 20,000 km.'
+  },
+  Kia:{
+    modelos:['Sportage','Sorento','Rio','Cerato','Picanto','Carnival','Stinger','Seltos'],
+    intervalos:{aceite:5000,filtroAire:30000,filtroCombustible:40000,bujias:40000,correa:90000,frenos:30000,refrigerante:40000},
+    aceiteRecomendado:'5W-30 sint\u00E9tico (API SN)',
+    filtroAceite:'Kia 26300-3X300 o equivalente',
+    observaciones:'Compartir plataforma con Hyundai. Inspecci\u00F3n de sistema GDI (inyecci\u00F3n directa) cada 50,000 km para dep\u00F3sitos de carb\u00F3n.'
+  },
+  Mitsubishi:{
+    modelos:['L200','Montero','Outlander','ASX','Lancer','Eclipse Cross','Galant'],
+    intervalos:{aceite:5000,filtroAire:25000,filtroCombustible:40000,bujias:30000,correa:90000,frenos:30000,refrigerante:40000},
+    aceiteRecomendado:'5W-30 o 10W-40 (API SN)',
+    filtroAceite:'Mitsubishi MD069782 o equivalente Purolator PL14610',
+    observaciones:'Sistema 4WD Super Select requiere aceite diferencial especial cada 30,000 km. Verificar embrague de transferencia.'
+  },
+  Isuzu:{
+    modelos:['D-Max','MU-X','Trooper','Elf','NHR','NPR','FRR','FVR'],
+    intervalos:{aceite:5000,filtroAire:20000,filtroCombustible:30000,bujias:40000,correa:100000,frenos:25000,refrigerante:40000},
+    aceiteRecomendado:'15W-40 diesel (API CI-4) o 5W-30 en motores gasolina',
+    filtroAceite:'Isuzu 8972381880 o equivalente Baldwin B7188',
+    observaciones:'Motor diesel 4JJ1 requiere revisi\u00F3n de inyectores cada 80,000 km. DPF (filtro de part\u00EDculas) en modelos Euro V.'
+  },
+  Kenworth:{
+    modelos:['T680','T880','W900','T370','T470','C500'],
+    intervalos:{aceite:10000,filtroAire:50000,filtroCombustible:20000,bujias:null,correa:250000,frenos:20000,refrigerante:100000},
+    aceiteRecomendado:'15W-40 o 10W-30 heavy duty (API CK-4/FA-4)',
+    filtroAceite:'Fleetguard LF3000 o equivalente Wix 51515',
+    observaciones:'Motores PACCAR MX requieren aceite API CK-4. Revisar sistema de frenos de aire cada 20,000 km. Lubricaci\u00F3n de quinta rueda mensual.'
+  },
+  Freightliner:{
+    modelos:['Cascadia','Columbia','M2','FL50','FL60','FL80'],
+    intervalos:{aceite:10000,filtroAire:50000,filtroCombustible:20000,bujias:null,correa:250000,frenos:20000,refrigerante:100000},
+    aceiteRecomendado:'15W-40 Shell Rotella T6 o equivalente (API CK-4)',
+    filtroAceite:'Fleetguard LF9009 o equivalente',
+    observaciones:'Motor Detroit DD13/DD15 requiere aceite de viscosidad alta. Verificar sistema EGR y DPF cada 50,000 km. Revisi\u00F3n de suspensi\u00F3n neum\u00E1tica.'
+  },
+  Mack:{
+    modelos:['Pinnacle','Granite','Anthem','LR Electric','TerraPro'],
+    intervalos:{aceite:10000,filtroAire:50000,filtroCombustible:20000,bujias:null,correa:250000,frenos:20000,refrigerante:100000},
+    aceiteRecomendado:'15W-40 heavy duty (API CK-4) Mack EO-O PP',
+    filtroAceite:'Fleetguard LF14000NN o equivalente',
+    observaciones:'Usar solo aceites aprobados Mack EO-O PP para garant\u00EDa. Revisi\u00F3n de caja Mack T318 cada 120,000 km.'
+  },
+  Volvo:{
+    modelos:['FH','FM','FMX','FE','FL','VNL','VNR'],
+    intervalos:{aceite:10000,filtroAire:50000,filtroCombustible:15000,bujias:null,correa:300000,frenos:20000,refrigerante:100000},
+    aceiteRecomendado:'Volvo VDS-4 15W-40 o equivalente aprobado',
+    filtroAceite:'Volvo 466634 o equivalente Fleetguard LF3000',
+    observaciones:'Sistema I-Shift requiere aceite Volvo 97307. Revisi\u00F3n de AdBlue/DEF cada llenado. Diagn\u00F3stico con herramienta VCADS Pro.'
+  },
+  'Mercedes-Benz':{
+    modelos:['Sprinter','Actros','Atego','Axor','Vito','GLE','GLC','C-Class'],
+    intervalos:{aceite:10000,filtroAire:40000,filtroCombustible:20000,bujias:40000,correa:200000,frenos:30000,refrigerante:60000},
+    aceiteRecomendado:'5W-30 MB 229.52 o 229.51 (solo aprobados Mercedes)',
+    filtroAceite:'Mercedes A0001801209 o equivalente Mann W71280',
+    observaciones:'Los motores OM651 y OM642 solo admiten aceites con aprobaci\u00F3n MB 229.51/52. Revisar actuador de swirl cada 60,000 km.'
+  },
+  Hino:{
+    modelos:['300','500','700','Ranger','Dutro','FC','FG','FM','GH'],
+    intervalos:{aceite:5000,filtroAire:25000,filtroCombustible:20000,bujias:null,correa:120000,frenos:20000,refrigerante:50000},
+    aceiteRecomendado:'15W-40 diesel (API CH-4/CI-4) Hino Genuine',
+    filtroAceite:'Hino 15600-E0010 o equivalente',
+    observaciones:'Motor J05D/J08E requiere revisi\u00F3n de inyectores cada 80,000 km. Sistema DPD (diesel particulate diffuser) en modelos recientes.'
+  },
+  Otro:{
+    modelos:['Otro modelo'],
+    intervalos:{aceite:5000,filtroAire:20000,filtroCombustible:30000,bujias:30000,correa:90000,frenos:30000,refrigerante:40000},
+    aceiteRecomendado:'Consultar manual del fabricante',
+    filtroAceite:'Consultar manual del fabricante',
+    observaciones:'Seguir especificaciones del fabricante para este modelo.'
   }
-  var perfilLabel = {admin:'Administrador', supervisor:'Supervisor', operador:'Operador'};
-  panel.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">'
-    + activos.map(function(u) {
-        return '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;display:flex;align-items:center;gap:10px">'
-          + '<div style="width:36px;height:36px;border-radius:50%;background:var(--accent-dim);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">&#128100;</div>'
-          + '<div><div style="font-weight:600;font-size:13px">' + u.nombre + '</div>'
-          + '<div style="font-size:11px;color:var(--text3)">@' + u.username + '</div>'
-          + '<span class="badge badge-' + (u.perfil==='admin'?'red':u.perfil==='supervisor'?'amber':'blue') + '" style="font-size:10px">' + (perfilLabel[u.perfil]||u.perfil) + '</span>'
-          + '</div></div>';
-      }).join('')
-    + '</div>'
-    + '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);font-size:11px;color:var(--text3)">'
-    + 'ID de taller: <span style="font-family:var(--font-mono)">' + tallerInfo.tallerId + '</span>'
-    + ' &nbsp;|&nbsp; ' + activos.length + ' usuario(s) activos'
-    + '</div>';
+};
+
+const TIPOS_VEHICULO=['Sedan','Pickup','Camioneta/SUV','Bus','Cami\u00F3n','Cabezal','Microbus','Furgoneta'];
+const CATEGORIAS_REPUESTO=['Filtros','Aceites y Lubricantes','Frenos','Motor','Suspensi\u00F3n','Transmisi\u00F3n','El\u00E9ctrico','Refrigeraci\u00F3n','Direcci\u00F3n','Neum\u00E1ticos','Carrocer\u00EDa','General'];
+
+/* ---- NAVIGATION ---- */
+const NAV_CONFIG=[
+  {section:'Dashboard'},
+  {id:'dashboard',label:'Dashboard',icon:'',perfil:'all'},
+  {id:'dashboard_mecanicos',label:'KPI Mec\u00E1nicos',icon:'',perfil:'admin'},
+  {id:'dashboard_financiero',label:'Financiero',icon:'',perfil:'admin'},
+  {id:'dash_facturas',label:'Dashboard Facturas',icon:'',perfil:'supervisor'},
+  {id:'dash_cotizaciones',label:'Dashboard Cotizaciones',icon:'',perfil:'supervisor'},
+  {id:'dash_budget',label:'Dashboard Budget',icon:'',perfil:'supervisor'},
+  {section:'Taller'},
+  {id:'alertas',label:'Alertas',icon:'',badge:true,perfil:'all'},
+  {id:'recepciones',label:'Recepci\u00F3n',icon:'',perfil:'all'},
+  {id:'ordenes',label:'\u00D3rdenes de Trabajo',icon:'',perfil:'all'},
+  {id:'facturas',label:'Facturaci\u00F3n',icon:'',perfil:'supervisor'},
+  {id:'cotizador',label:'Cotizador',icon:'',perfil:'supervisor'},
+  {id:'budget',label:'Budget / Presupuesto',icon:'',perfil:'supervisor'},
+  {section:'Inventario'},
+  {id:'repuestos',label:'Repuestos',icon:'🔩',perfil:'all'},
+  {id:'insumos',label:'Insumos',icon:'🧴',perfil:'all'},
+  {id:'proveedores',label:'Proveedores',icon:'🚚',perfil:'supervisor'},
+  {id:'bodegas',label:'Bodegas',icon:'🏭',perfil:'admin'},
+  {id:'envios',label:'Envios',icon:'📦',perfil:'supervisor'},
+  {id:'servicios_externos',label:'Servicios Externos',icon:'',perfil:'supervisor'},
+  {section:'Clientes'},
+  {id:'clientes',label:'Clientes',icon:'👤',perfil:'all'},
+  {id:'vehiculos',label:'Veh\u00EDculos',icon:'',perfil:'all'},
+  {id:'flota',label:'Flota Empresarial',icon:'',perfil:'supervisor'},
+  {section:'RRHH'},
+  {id:'historial_pagos',label:'Historial de Pagos',icon:'',perfil:'admin'},
+  {id:'gestion_rrhh',label:'Gestion RRHH',icon:'',perfil:'admin'},
+  {id:'liquidacion',label:'Liquidacion',icon:'📝',perfil:'admin'},
+  {id:'reporte_general',label:'Reporte General',icon:'',perfil:'admin'},
+  {id:'empleados',label:'Empleados',icon:'👥',perfil:'admin'},
+  {id:'nomina',label:'N\u00F3mina',icon:'',perfil:'admin'},
+  {id:'capacitacion',label:'Capacitacion',icon:'',perfil:'admin'},
+  {id:'aumentos',label:'Aumentos Salariales',icon:'',perfil:'admin'},
+  {section:'Finanzas'},
+  {id:'bancos',label:'Bancos',icon:'🏦',perfil:'admin'},
+  {id:'servicios',label:'Servicios Fijos',icon:'📌',perfil:'admin'},
+  {id:'viaticos',label:'Viaticos y Gastos',icon:'🧾',perfil:'supervisor'},
+  {id:'importar_sat',label:'Facturas SAT',icon:'📥',perfil:'admin'},
+  {id:'costos',label:'Costos Operativos',icon:'💰',perfil:'supervisor'},
+  {id:'activos',label:'Activos/Depreciaci\u00F3n',icon:'',perfil:'admin'},
+  {id:'rentabilidad',label:'Rentabilidad',icon:'📈',perfil:'admin'},
+  {id:'impuestos',label:'IVA / ISR',icon:'',perfil:'admin'},
+  {id:'contabilidad',label:'Contabilidad',icon:'📒',perfil:'admin'},
+  {section:'Sistema'},
+  {id:'licencia',label:'\uD83D\uDD11 Mi Licencia',icon:'\uD83D\uDD11',perfil:'admin'},
+  {id:'whatsapp',label:'WhatsApp Bot',icon:'💬',perfil:'admin'},
+  {id:'fel',label:'Facturacion FEL',icon:'',perfil:'admin'},
+  {id:'auditoria',label:'Log de Auditoria',icon:'🔎',perfil:'admin'},
+
+  {id:'import_export',label:'Importar/Exportar',icon:'',perfil:'admin'},
+  {id:'usuarios',label:'Usuarios',icon:'👤',perfil:'admin'},
+  {id:'pos',label:'POS / Tarjetas',icon:'💳',perfil:'admin'},
+  {id:'configuracion',label:'Configuraci\u00F3n',icon:'',perfil:'admin'},
+];
+
+let currentPage='dashboard';
+
+async function renderNav(badgeCount=0){
+  const el=document.getElementById('nav-menu');
+  if(!el)return;
+  const nivel=PERFILES[sesionActual?.perfil]?.nivel||0;
+  el.innerHTML=NAV_CONFIG.map(n=>{
+    if(n.section)return`<div class="nav-section">${n.section}</div>`;
+    const perfilNivel=n.perfil==='all'?1:n.perfil==='supervisor'?2:3;
+    if(perfilNivel>nivel)return'';
+    const active=currentPage===n.id?'active':'';
+    const badge=n.badge&&badgeCount>0?`<span class="nav-badge">${badgeCount}</span>`:'';
+    return`<div class="nav-item ${active}" onclick="navTo('${n.id}')"><span class="icon">${n.icon}</span>${n.label}${badge}</div>`;
+  }).join('');
 }
 
-async function mostrarInfoTallerModal() {
-  var tallerInfo = getInfoTaller();
-  var usuarios = await dbGetAll('usuarios');
-  var activos = usuarios.filter(function(u){ return u.activo !== false && !u.esDemo; });
-  openModal('infoTaller', 'Informacion del taller',
-    '<div style="font-size:13px;line-height:2.2">'
-    + '<div style="display:grid;grid-template-columns:1fr 2fr;gap:4px">'
-    + '<span style="color:var(--text3)">Taller:</span><strong>' + tallerInfo.nombre + '</strong>'
-    + '<span style="color:var(--text3)">NIT:</span><span>' + tallerInfo.nit + '</span>'
-    + '<span style="color:var(--text3)">Plan:</span><span class="badge badge-green">' + tallerInfo.plan.toUpperCase() + '</span>'
-    + '<span style="color:var(--text3)">ID instalacion:</span><span style="font-family:var(--font-mono);font-size:11px">' + getInstallId() + '</span>'
-    + '<span style="color:var(--text3)">ID taller:</span><span style="font-family:var(--font-mono);font-size:11px">' + tallerInfo.tallerId + '</span>'
-    + '<span style="color:var(--text3)">Base de datos:</span><span style="font-family:var(--font-mono);font-size:11px">' + getDBName() + '</span>'
-    + '<span style="color:var(--text3)">Usuarios activos:</span><strong>' + activos.length + '</strong>'
-    + (tallerInfo.esCorporacion ? '<span style="color:var(--text3)">Sub-talleres:</span><strong>' + tallerInfo.subTalleres.length + '</strong>' : '')
-    + '</div>'
-    + '<div style="margin-top:14px;font-size:11px;color:var(--text3);background:var(--bg3);padding:10px;border-radius:6px">'
-    + 'Cada taller tiene su propia base de datos aislada. Comparte el ID de instalacion al adquirir usuarios adicionales.'
-    + '</div>'
-    + '</div>',
-    function(){}, false
-  );
+async function navTo(page){
+  if(!sesionActual){mostrarLogin();return;}
+  const item=NAV_CONFIG.find(n=>n.id===page);
+  if(item){
+    const nivel=PERFILES[sesionActual.perfil]?.nivel||0;
+    const perfilNivel=item.perfil==='all'?1:item.perfil==='supervisor'?2:3;
+    if(perfilNivel>nivel){toast('Acceso denegado para tu perfil','red');return;}
+  }
+  currentPage=page;
+  const alerts=await dbGetAll('alertas');
+  const pending=alerts.filter(a=>!a.vista).length;
+  await renderNav(pending);
+  await renderPage(page);
 }
 
-async
+/* ---- MODAL SYSTEM ---- */

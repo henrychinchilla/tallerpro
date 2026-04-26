@@ -1,339 +1,5 @@
-/* TallerPro GT — js/importar.js
-   Módulo independiente — cada archivo tiene funciones específicas
-   Para editar: modificar solo este archivo y recargar
-*/
+/* TallerPro GT — importar.js */
 
-function generarAlertasAutomaticas(){
-  const [vehiculos,repuestos,insumos,alertasEx,facturas,ordenes]=await Promise.all([
-    dbGetAll('vehiculos'),dbGetAll('repuestos'),dbGetAll('insumos'),
-    dbGetAll('alertas'),dbGetAll('facturas'),dbGetAll('ordenes')
-  ]);
-
-  const nuevas=[];
-  const existe=(ref)=>alertasEx.some(a=>a.ref===ref);
-
-  // 1. Mantenimiento pr\u00F3ximo
-  for(const v of vehiculos){
-    if(!v.proximoServicio)continue;
-    const dias=diasRestantes(v.proximoServicio);
-    if(dias<=15&&dias>=-30){
-      const ref=`serv_${v.id}_${v.proximoServicio}`;
-      if(!existe(ref))nuevas.push({tipo:'mantenimiento',ref,vista:false,
-        titulo:`Mantenimiento pr\u00F3ximo: ${v.placa} \u2014 ${v.modelo||''}`,
-        descripcion:`${dias>=0?`En ${dias} d\u00EDas`:`VENCIDO hace ${Math.abs(dias)} d\u00EDas`} \u2014 ${v.tipoServicio||'Servicio preventivo'}. Cliente: ${v.clienteNombre||''}`,
-        fecha:today(),vehiculoId:v.id,prioridad:dias<0?'alta':dias<=5?'alta':'media'});
-    }
-  }
-
-  // 2. Stock bajo en repuestos e insumos
-  for(const r of [...repuestos,...insumos]){
-    if((r.stock||0)<=(r.stockMin||5)){
-      const ref=`stock_${r.id}_${r.tipo||'rep'}`;
-      if(!existe(ref))nuevas.push({tipo:'stock',ref,vista:false,
-        titulo:`Stock bajo: ${r.nombre}`,
-        descripcion:`Stock: ${r.stock||0} uds. M\u00EDnimo: ${r.stockMin||5}. Proveedor: ${r.proveedor||'N/A'}`,
-        fecha:today(),prioridad:(r.stock||0)===0?'alta':'media'});
-    }
-  }
-
-  // 3. Caducidad de productos (< 30 d\u00EDas)
-  for(const r of [...repuestos,...insumos]){
-    if(!r.fechaCaducidad)continue;
-    const dias=diasRestantes(r.fechaCaducidad);
-    if(dias<=30){
-      const ref=`cad_${r.id}_${r.fechaCaducidad}`;
-      if(!existe(ref))nuevas.push({tipo:'vencimiento',ref,vista:false,
-        titulo:`Caducidad pr\u00F3xima: ${r.nombre}`,
-        descripcion:`${dias>=0?`Vence en ${dias} d\u00EDas (${fechaLegible(r.fechaCaducidad)})`:`VENCIDO el ${fechaLegible(r.fechaCaducidad)}`}. Stock: ${r.stock||0} uds.`,
-        fecha:today(),prioridad:dias<0?'alta':'media'});
-    }
-  }
-
-  // 4. M\u00E1rgenes por debajo del 20%
-  for(const r of [...repuestos,...insumos]){
-    if(r.costo>0&&r.precio>0){
-      const m=(r.precio-r.costo)/r.precio;
-      if(m<MARGEN_MIN){
-        const ref=`margen_${r.id}`;
-        if(!existe(ref))nuevas.push({tipo:'margen',ref,vista:false,
-          titulo:`Margen bajo: ${r.nombre}`,
-          descripcion:`Margen actual: ${(m*100).toFixed(1)}% (m\u00EDnimo 20%). Compra: Q${r.costo.toFixed(2)} | Venta: Q${r.precio.toFixed(2)}`,
-          fecha:today(),prioridad:'media'});
-      }
-    }
-  }
-
-  // 5. Facturas pendientes de pago (>30 d\u00EDas)
-  const hoy=new Date();
-  for(const f of facturas.filter(x=>!x.pagada&&x.fecha)){
-    const diasPend=Math.floor((hoy-new Date(f.fecha+'T00:00:00'))/(864e5));
-    if(diasPend>30){
-      const ref=`cobro_${f.id}`;
-      if(!existe(ref))nuevas.push({tipo:'cobro',ref,vista:false,
-        titulo:`Factura sin cobrar: ${f.noFactura}`,
-        descripcion:`Cliente: ${f.clienteNombre} | Total: Q${(f.total||0).toFixed(2)} | ${diasPend} d\u00EDas pendiente`,
-        fecha:today(),prioridad:'alta'});
-    }
-  }
-
-  // 6. \u00D3rdenes abiertas sin actualizar (>7 d\u00EDas en mismo estado)
-  for(const o of ordenes.filter(x=>x.estado==='en_proceso'&&x.updatedAt)){
-    const diasSinMov=Math.floor((hoy-new Date(o.updatedAt))/(864e5));
-    if(diasSinMov>7){
-      const ref=`ot_stale_${o.id}`;
-      if(!existe(ref))nuevas.push({tipo:'correctivo',ref,vista:false,
-        titulo:`OT sin actualizar: ${o.noOT}`,
-        descripcion:`Placa ${o.placa} \u2014 ${diasSinMov} d\u00EDas en estado "en proceso". T\u00E9cnico: ${o.tecnico||'N/A'}`,
-        fecha:today(),prioridad:'media'});
-    }
-  }
-
-  for(const a of nuevas)await dbAdd('alertas',a);
-}
-
-
-
-
-
-async function eliminarAlerta(id){await dbDelete('alertas',id);await navTo('alertas');}
-async function exportarAlertas(){
-  const alertas=await dbGetAll('alertas');
-  const vehiculos=await dbGetAll('vehiculos');
-  const clientes=await dbGetAll('clientes');
-  const cfg=await dbGet('config','taller')||{};
-  let txt='MENSAJES WHATSAPP \u2014 '+( cfg.nombre||'TALLER PRO GT')+'\n'+'='.repeat(50)+'\n\n';
-  for(const a of alertas.filter(x=>!x.vista&&x.tipo==='mantenimiento')){
-    const v=vehiculos.find(x=>x.id===a.vehiculoId);
-    const c=v?clientes.find(x=>x.id===v?.clienteId):null;
-    txt+=`PARA: ${c?.whatsapp||c?.telefono||'\u2014'}\nMENSAJE:\nEstimado/a ${c?.nombre||'cliente'}, le recordamos que su veh\u00EDculo *${v?.placa||''} ${v?.modelo||''}* tiene programado su servicio de *${v?.tipoServicio||'mantenimiento'}* pr\u00F3ximamente.\n\nComun\u00EDquese con nosotros para confirmar su cita.\n\n${cfg.nombre||'TallerPro GT'}\n${cfg.telefono||''}\n\n${'-'.repeat(40)}\n\n`;
-  }
-  const blob=new Blob([txt],{type:'text/plain'});
-  const url=URL.createObjectURL(blob);
-  const a2=document.createElement('a');a2.href=url;a2.download='alertas_whatsapp.txt';a2.click();
-}
-
-/* ---- DASHBOARD PRINCIPAL ---- */
-async function renderImportarSAT(content, actions) {
-  actions.innerHTML = '<button class="btn btn-secondary" onclick="registrarTotalSATEnCostos()">💰 Registrar total del mes en costos</button>';
-
-  var costos = await dbGetAll('costos');
-  var satCosts = costos.filter(function(c){ return c.fuenteSAT; });
-
-  // Agrupar por mes
-  var porMes = {};
-  satCosts.forEach(function(c) {
-    var mes = (c.fechaMes || c.fecha || '').slice(0,7);
-    if (!mes) return;
-    if (!porMes[mes]) porMes[mes] = { facturas: [], total: 0 };
-    porMes[mes].facturas.push(c);
-    porMes[mes].total += c.monto || 0;
-  });
-  var meses = Object.keys(porMes).sort().reverse();
-
-  var histHTML = '';
-  if (!meses.length) {
-    histHTML = '<div style="text-align:center;padding:24px;color:var(--text3)">No hay facturas SAT cargadas aún</div>';
-  } else {
-    meses.forEach(function(mes) {
-      var data = porMes[mes];
-      var d = new Date(mes + '-01T12:00:00');
-      var label = d.toLocaleDateString('es-GT', {month:'long', year:'numeric'});
-      var yaEnCostos = costos.some(function(c){ return c.categoriasSAT && c.fechaMes === mes; });
-      histHTML += '<div class="card" style="margin-bottom:10px">'
-        + '<div class="card-header">'
-        + '<span class="card-title" style="text-transform:capitalize">📅 ' + label + '</span>'
-        + '<div style="display:flex;align-items:center;gap:8px">'
-        + '<span style="font-family:var(--font-mono);font-weight:700;color:var(--green)">Q ' + data.total.toFixed(2) + '</span>'
-        + '<span style="font-size:11px;color:var(--text3)">' + data.facturas.length + ' facturas</span>'
-        + (yaEnCostos
-            ? '<span class="badge badge-green">✓ En costos</span>'
-            : '<button class="btn btn-sm btn-primary" onclick="_regSAT(this)" data-mes="' + mes + '">→ Registrar en costos</button>')
-        + '</div></div>'
-        + '<div style="max-height:160px;overflow-y:auto">'
-        + '<table class="table"><thead><tr><th>Fecha</th><th>Emisor</th><th>NIT</th><th>Total</th><th>Serie</th></tr></thead>'
-        + '<tbody>' + data.facturas.map(function(c){
-            return '<tr><td>' + fechaLegible(c.fecha) + '</td>'
-              + '<td style="font-size:11px">' + (c.descripcion||'') + '</td>'
-              + '<td style="font-family:var(--font-mono);font-size:11px">' + (c.nitEmisor||'') + '</td>'
-              + '<td style="font-family:var(--font-mono)">Q ' + (c.monto||0).toFixed(2) + '</td>'
-              + '<td style="font-size:10px;color:var(--text3)">' + (c.serieFEL||'') + '</td></tr>';
-          }).join('') + '</tbody></table>'
-        + '</div></div>';
-    });
-  }
-
-  content.innerHTML = '<div class="section-title">📥 Facturas recibidas del Portal SAT</div>'
-    + '<div class="section-sub">Las facturas se agrupan por mes. Solo el total mensual se registra en Costos Operativos.</div>'
-    + '<div class="card" style="margin-bottom:16px">'
-    + '<div class="alert alert-blue" style="font-size:11px;margin-bottom:14px">'
-    + '<strong>Cómo obtener el CSV del SAT:</strong><br>'
-    + '1. Entra a <strong>portal.sat.gob.gt</strong> → Servicios → Facturas Electrónicas → Documentos recibidos<br>'
-    + '2. Filtra por mes → clic en <strong>Descargar CSV</strong><br>'
-    + '3. Sube ese archivo aquí para guardarlo. Al final del mes presiona "Registrar en costos".</div>'
-    + '<div style="margin-bottom:12px">'
-    + '<label style="display:block;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">Seleccionar archivo CSV del SAT:</label>'
-    + '<input id="sat_file_inp" type="file" accept=".csv,.txt,.CSV" style="font-size:13px;color:var(--text2);padding:8px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;width:100%">'
-    + '</div>'
-    + '<button class="btn btn-primary" onclick="procesarCSVSAT()">Cargar y guardar facturas</button>'
-    + '<div id="sat_preview" style="margin-top:12px"></div>'
-    + '</div>'
-    + '<div class="section-title" style="font-size:15px;margin-bottom:8px">Historial por mes</div>'
-    + histHTML;
-}
-
-
-function _regSAT(btn) {
-  var mes = btn.getAttribute('data-mes');
-  if (mes) registrarMesSATEnCostos(mes);
-}
-async function registrarMesSATEnCostos(mes) {
-  var costos = await dbGetAll('costos');
-  var satCosts = costos.filter(function(c){ return c.fuenteSAT && (c.fechaMes||c.fecha||'').slice(0,7) === mes; });
-  if (!satCosts.length) { toast('No hay facturas SAT para este mes', 'amber'); return; }
-  // Verificar si ya está registrado
-  var yaExiste = costos.some(function(c){ return c.categoriasSAT && c.fechaMes === mes; });
-  if (yaExiste) { if (!confirm('Ya hay un registro SAT para ' + mes + '. ¿Reemplazar?')) return; }
-  var total = satCosts.reduce(function(a,c){ return a + (c.monto||0); }, 0);
-  var d = new Date(mes + '-01T12:00:00');
-  var label = d.toLocaleDateString('es-GT', {month:'long', year:'numeric'});
-  await dbAdd('costos', {
-    fecha: mes + '-01',
-    fechaMes: mes,
-    tipo: 'Facturas SAT',
-    descripcion: 'Total facturas recibidas SAT — ' + label,
-    monto: parseFloat(total.toFixed(2)),
-    categoria: 'Gastos con factura SAT',
-    categoriasSAT: true,
-    pagado: true,
-    createdAt: nowTs(), updatedAt: nowTs()
-  });
-  await logAuditoria('REGISTRAR','costos','Total SAT ' + mes + ' registrado en costos: Q' + total.toFixed(2), {mes:mes});
-  toast('✓ Q ' + total.toFixed(2) + ' registrado en Costos Operativos para ' + label);
-  await navTo('importar_sat');
-}
-
-async function registrarTotalSATEnCostos() {
-  var mes = today().slice(0,7);
-  await registrarMesSATEnCostos(mes);
-}
-
-
-async function procesarCSVSAT() {
-  var input = document.getElementById('sat_file_inp');
-  if (!input || !input.files || !input.files[0]) {
-    toast('Primero selecciona un archivo CSV', 'amber');
-    return;
-  }
-  var file = input.files[0];
-  var preview = document.getElementById('sat_preview');
-  preview.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text3)">⏳ Procesando archivo...</div>';
-
-  try {
-    var texto = await leerArchivoTexto(file);
-    var lineas = texto.trim().split(/\r?\n/).filter(function(l){ return l.trim(); });
-    if (lineas.length < 2) {
-      preview.innerHTML = '<div class="alert alert-red">El archivo está vacío o no tiene datos</div>';
-      return;
-    }
-
-    // Detectar separador (coma, punto y coma o tab)
-    var sep = lineas[0].includes(';') ? ';' : lineas[0].includes('\t') ? '\t' : ',';
-    var header = lineas[0].split(sep).map(function(h){
-      return h.trim().replace(/"/g,'').toLowerCase()
-        .normalize('NFD').replace(/[\u0300-\u036f]/g,'') // quitar tildes
-        .replace(/\s+/g,'_');
-    });
-
-    // Columnas del SAT Guatemala (nombres en español)
-    var col = {
-      fecha:  buscarCol(header, ['fecha_emision','fecha','date','fecha_autorizacion']),
-      nit:    buscarCol(header, ['nit_emisor','nit','vendedor_nit','emisor_nit']),
-      nombre: buscarCol(header, ['nombre_emisor','razon_social','emisor','vendedor','nombre']),
-      total:  buscarCol(header, ['total','monto','importe','valor_total','gran_total']),
-      serie:  buscarCol(header, ['serie','autorizacion','uuid','no_documento','numero']),
-      tipo:   buscarCol(header, ['tipo_documento','tipo','clase_documento']),
-    };
-
-    var rows = [];
-    for (var i = 1; i < lineas.length; i++) {
-      var cols = parsearLinea(lineas[i], sep);
-      var total = parseFloat((get(cols, col.total)||'0').replace(/[Q\s,]/g,'')) || 0;
-      if (total <= 0) continue;
-      var fecha = normalFecha(get(cols, col.fecha));
-      rows.push({
-        fecha: fecha,
-        nitEmisor: get(cols, col.nit),
-        descripcion: get(cols, col.nombre) || 'Proveedor SAT',
-        monto: total,
-        serieFEL: get(cols, col.serie),
-        tipo: get(cols, col.tipo) || 'FACT'
-      });
-    }
-
-    if (!rows.length) {
-      preview.innerHTML = '<div class="alert alert-red">No se encontraron facturas válidas. Verifica que el archivo sea el CSV correcto del SAT.</div>'
-        + '<div style="font-size:11px;color:var(--text3);margin-top:8px">Columnas detectadas: ' + header.join(', ') + '</div>';
-      return;
-    }
-
-    var totalQ = rows.reduce(function(a,r){ return a+r.monto; }, 0);
-    preview.innerHTML = '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">'
-      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:center">'
-      + '<div><div style="font-size:22px;font-weight:700;color:var(--green)">' + rows.length + '</div><div style="font-size:11px;color:var(--text3)">Facturas encontradas</div></div>'
-      + '<div><div style="font-size:18px;font-weight:700;color:var(--accent)">Q ' + totalQ.toFixed(2) + '</div><div style="font-size:11px;color:var(--text3)">Total</div></div>'
-      + '</div></div>'
-      + '<div style="max-height:200px;overflow-y:auto;margin-bottom:12px">'
-      + '<table class="table"><thead><tr><th>Fecha</th><th>Emisor</th><th>NIT</th><th>Total</th></tr></thead><tbody>'
-      + rows.slice(0,10).map(function(r){
-          return '<tr><td>'+(r.fecha||'')+'</td><td style="font-size:11px">'+r.descripcion+'</td>'
-            +'<td style="font-family:var(--font-mono);font-size:11px">'+r.nitEmisor+'</td>'
-            +'<td style="font-family:var(--font-mono)">Q '+r.monto.toFixed(2)+'</td></tr>';
-        }).join('')
-      + (rows.length>10?'<tr><td colspan="4" style="text-align:center;color:var(--text3);font-size:11px">...y '+(rows.length-10)+' más</td></tr>':'')
-      + '</tbody></table></div>'
-      + '<button class="btn btn-primary" style="width:100%" onclick="importarFacturasSAT()">✓ Guardar ' + rows.length + ' facturas del SAT</button>';
-    window._satRows = rows;
-  } catch(e) {
-    preview.innerHTML = '<div class="alert alert-red">Error: ' + e.message + '</div>';
-  }
-}
-
-async function importarFacturasSAT(rows) {
-  if (!rows || !rows.length) rows = window._satRows;
-  if (!rows || !rows.length) { toast('No hay facturas para guardar. Vuelve a cargar el archivo.', 'red'); return; }
-  var importados = 0;
-  for (var i=0; i<rows.length; i++) {
-    var r = rows[i];
-    // Guardar cada factura individualmente (sin tocar costos operativos)
-    await dbAdd('costos', {
-      fecha: r.fecha,
-      fechaMes: (r.fecha||today()).slice(0,7),
-      tipo: 'Factura SAT',
-      descripcion: r.descripcion,
-      monto: r.monto,
-      categoria: 'Factura SAT',
-      nitEmisor: r.nitEmisor,
-      serieFEL: r.serieFEL || '',
-      fuenteSAT: true,
-      pagado: true,
-      createdAt: nowTs(), updatedAt: nowTs()
-    });
-    importados++;
-  }
-  await logAuditoria('IMPORTAR','sat','Facturas SAT guardadas: '+importados,{total:importados});
-  toast('✓ ' + importados + ' facturas guardadas. Presiona "Registrar en costos" al cierre del mes.');
-  window._satRows = null;
-  await navTo('importar_sat');
-}
-
-
-/* ================================================================
-   MÓDULO DE BODEGAS / SUCURSALES
-   ================================================================ */
-
-/* ================================================================
-   MÓDULO BODEGAS - Sub-módulo de Inventario con traslados
-   ================================================================ */
 async function enviarWACallMeBot(telefono, mensaje, apiKey) {
   var tel = String(telefono||'').replace(/[^\d]/g,'');
   if (!tel) return { ok: false, error: 'N\u00FAmero vac\u00EDo' };
@@ -1018,151 +684,797 @@ async function generarAlertas_v2() {
 /* ================================================================
    IMPORTAR VIÁTICOS/GASTOS MASIVO - CSV o Excel
    ================================================================ */
-function renderWhatsApp(content, actions) {
-  var cfg      = await dbGet('config','taller') || {};
-  var waCfg    = await dbGet('config','whatsapp') || {};
-  var notif    = await dbGet('config','notificaciones') || {};
-  var clientes  = await dbGetAll('clientes');
-  var vehiculos = await dbGetAll('vehiculos');
-  var hoy2     = new Date(); hoy2.setHours(0,0,0,0);
-  var histMsgs = await dbGetAll('whatsapp_logs');
-  var filtroWA = window._waFiltro || 'todos';
+function mostrarImportarViaticos() {
+  openModal('impViaticos', '📥 Importar gastos masivos',
+    '<div class="alert alert-blue" style="font-size:11px;margin-bottom:12px">'
+    + '<strong>Columnas requeridas:</strong> fecha, empleado, categoria, descripcion, monto<br>'
+    + '<strong>Columnas opcionales:</strong> deducible (si/no), tiene_factura (si/no), iva_acreditado, notas<br>'
+    + 'Categorías: almuerzo, combustible, hospedaje, transporte, peaje, herramientas, comunicaciones, otro</div>'
+    + '<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">'
+    + '<button onclick="descargarPlantillaViaticos()" class="btn btn-secondary">📋 Descargar plantilla CSV</button>'
+    + '</div>'
+    + '<div style="margin-bottom:12px">'
+    + '<label style="display:block;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">Seleccionar archivo (.csv o .xlsx):</label>'
+    + '<input id="viat_file_inp" type="file" accept=".csv,.xlsx,.xls,.CSV" style="font-size:13px;color:var(--text);padding:6px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;width:100%">'
+    + '</div>'
+    + '<button class="btn btn-primary" style="width:100%;margin-bottom:12px" onclick="procesarArchivoViaticos()">📂 Cargar y procesar archivo</button>'
+    + '<div id="imp_viat_preview"></div>',
+    function(){}, false
+  );
+}
 
-  actions.innerHTML = '<button class="btn btn-primary" onclick="enviarAlertasAutomaticas()">Enviar alertas pendientes</button>';
+function descargarPlantillaViaticos() {
+  var csv = 'fecha,empleado,categoria,descripcion,monto,deducible,tiene_factura,iva_acreditado,notas\n'
+    + '2025-01-15,Juan Pérez,almuerzo,Almuerzo con cliente,85.00,si,si,10.20,Reunión zona 10\n'
+    + '2025-01-15,Mario García,combustible,Gasolina visita cliente,150.00,si,si,18.00,Recorrido zona sur\n'
+    + '2025-01-16,Juan Pérez,transporte,Taxi aeropuerto,200.00,si,no,0,Viaje a Quetzaltenango\n';
+  var blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = 'plantilla_viaticos.csv';
+  a.click(); URL.revokeObjectURL(url);
+  toast('Plantilla descargada');
+}
 
-  // Vehiculos proximos al servicio
-  var diasAlert = waCfg.diasAnticipacion || 7;
-  var proximos = vehiculos.filter(function(v){
-    if (!v.proximoServicio) return false;
-    var d = Math.round((new Date(v.proximoServicio+'T00:00:00')-hoy2)/86400000);
-    return d >= -3 && d <= diasAlert;
-  }).map(function(v){
-    var cli = clientes.find(function(c){return c.id===v.clienteId;});
-    return Object.assign({},v,{clienteObj:cli, diasR:Math.round((new Date(v.proximoServicio+'T00:00:00')-hoy2)/86400000)});
+async function procesarArchivoViaticos() {
+  var input = document.getElementById('viat_file_inp');
+  if (!input || !input.files || !input.files[0]) {
+    toast('Primero selecciona un archivo', 'amber');
+    return;
+  }
+  var file = input.files[0];
+  var esExcel = file.name.match(/\.xlsx?$/i);
+  var preview = document.getElementById('imp_viat_preview');
+  preview.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text3)">⏳ Procesando archivo...</div>';
+
+  try {
+    var rows = [];
+    if (esExcel) {
+      rows = await leerExcelViaticos(file);
+    } else {
+      rows = await leerCSVViaticos(file);
+    }
+    if (!rows.length) {
+      preview.innerHTML = '<div class="alert alert-red">No se encontraron datos válidos. Verifica el formato del archivo.</div>';
+      return;
+    }
+    mostrarPreviewViaticos(rows, preview);
+  } catch(e) {
+    preview.innerHTML = '<div class="alert alert-red">Error al leer: ' + e.message + '</div>';
+  }
+}
+
+async function leerCSVViaticos(file) {
+  var texto = await leerArchivoTexto(file);
+  var sep = texto.includes(';') ? ';' : texto.includes('\t') ? '\t' : ',';
+  var lineas = texto.trim().split(/\r?\n/).filter(function(l){ return l.trim(); });
+  if (lineas.length < 2) return [];
+  var header = parsearLinea(lineas[0], sep).map(function(h){
+    return h.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,'_');
   });
+  return parsearFilasViaticos(lineas.slice(1), header, sep);
+}
 
-  // Filtros para logs
-  var filtros = [
-    {k:'todos', label:'Todos ('+histMsgs.length+')'},
-    {k:'enviado', label:'Enviados ('+histMsgs.filter(function(m){return m.estado==='enviado';}).length+')'},
-    {k:'error', label:'Errores ('+histMsgs.filter(function(m){return m.estado==='error';}).length+')'},
-    {k:'leido', label:'Leidos ('+histMsgs.filter(function(m){return m.leido;}).length+')'},
-    {k:'no_leido', label:'No leidos ('+histMsgs.filter(function(m){return !m.leido&&m.estado==='enviado';}).length+')'},
-  ];
-  var filtroHtml = '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">'
-    + filtros.map(function(f){
-      return '<button class="btn btn-sm '+(filtroWA===f.k?'btn-primary':'btn-secondary')+'" onclick="filtrarWA(\''+f.k+'\')">'+f.label+'</button>';
-    }).join('') + '</div>';
+async function leerExcelViaticos(file) {
+  await cargarSheetJS();
+  var buf = await leerArchivoBuffer(file);
+  var wb = XLSX.read(buf, {type:'array'});
+  var ws = wb.Sheets[wb.SheetNames[0]];
+  var data = XLSX.utils.sheet_to_json(ws, {header:1, raw:false, defval:''});
+  if (data.length < 2) return [];
+  var header = data[0].map(function(h){
+    return String(h||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,'_');
+  });
+  return parsearFilasViaticos(data.slice(1), header, null);
+}
 
-  var msgsFiltrados = histMsgs.filter(function(m){
-    if (filtroWA==='enviado') return m.estado==='enviado';
-    if (filtroWA==='error') return m.estado==='error';
-    if (filtroWA==='leido') return m.leido;
-    if (filtroWA==='no_leido') return !m.leido && m.estado==='enviado';
-    return true;
-  }).sort(function(a,b){return (a.fecha||'')<(b.fecha||'')?1:-1;});
+function parsearFilasViaticos(lineas, header, sep) {
+  var colFecha = buscarCol(header, ['fecha','date']);
+  var colEmp   = buscarCol(header, ['empleado','nombre','trabajador','employee']);
+  var colCat   = buscarCol(header, ['categoria','category','tipo','type']);
+  var colDesc  = buscarCol(header, ['descripcion','description','concepto','detalle']);
+  var colMonto = buscarCol(header, ['monto','importe','total','amount','valor']);
+  var colDed   = buscarCol(header, ['deducible','deductible']);
+  var colFac   = buscarCol(header, ['tiene_factura','factura','factura','invoice']);
+  var colIVA   = buscarCol(header, ['iva_acreditado','iva','tax']);
+  var colNotas = buscarCol(header, ['notas','nota','note','observacion']);
 
-  var filasLogs = msgsFiltrados.slice(0,50).map(function(m){
-    return '<tr style="'+(m.leido?'opacity:.6':'')+'"><td style="font-size:10px">'+fechaLegible(m.fecha)+'</td>'
-      +'<td>'+m.destinatario+'</td>'
-      +'<td style="font-size:11px;max-width:200px">'+(m.mensaje||'').slice(0,60)+'...</td>'
-      +'<td><span class="badge badge-'+(m.estado==='enviado'?'green':'red')+'">'+m.estado+'</span></td>'
-      +'<td><div class="flex gap-1">'
-      +(!m.leido?'<button class="btn btn-sm btn-secondary" onclick="marcarMsgLeido('+m.id+')">Leido</button>':'')
-      +'<button class="btn btn-sm btn-danger" onclick="borrarMsgWA('+m.id+')">X</button>'
-      +'</div></td></tr>';
-  }).join('');
+  if (colMonto < 0) return [];
 
-  var filasPendientes = proximos.map(function(v){
-    var cli = v.clienteObj;
-    var tel = cli ? (cli.whatsapp||cli.telefono||'') : '';
-    var col = v.diasR<0?'red':v.diasR<=3?'red':v.diasR<=7?'amber':'green';
-    var label = v.diasR<0?'Vencido':v.diasR===0?'Hoy':'En '+v.diasR+'d';
+  var catMap = {almuerzo:'almuerzo',desayuno:'desayuno',cena:'cena',comida:'almuerzo',
+    combustible:'combustible',gasolina:'combustible',diesel:'combustible',
+    hospedaje:'hospedaje',hotel:'hospedaje',alojamiento:'hospedaje',
+    transporte:'transporte',taxi:'transporte',bus:'transporte',flete:'transporte',
+    peaje:'peaje',parqueo:'peaje',parking:'peaje',
+    herramientas:'herramientas',herramienta:'herramientas',
+    comunicaciones:'comunicaciones',telefono:'comunicaciones',celular:'comunicaciones',
+    otro:'otro',otros:'otro',miscelaneo:'otro'};
+
+  var rows = [];
+  lineas.forEach(function(linea) {
+    var cols = sep ? parsearLinea(linea, sep) : linea;
+    if (!cols || !cols.length) return;
+    var monto = parseFloat((get(cols, colMonto)||'0').replace(/[Q\s,]/g,'')) || 0;
+    if (monto <= 0) return;
+    var catRaw = (get(cols, colCat)||'otro').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    var cat = catMap[catRaw] || 'otro';
+    var dedRaw = get(cols, colDed).toLowerCase();
+    var ded = !dedRaw || dedRaw === 'si' || dedRaw === 'sí' || dedRaw === 'yes' || dedRaw === '1' || dedRaw === 'true';
+    var facRaw = get(cols, colFac).toLowerCase();
+    var conFac = facRaw === 'si' || facRaw === 'sí' || facRaw === 'yes' || facRaw === '1';
+    var ivaRaw = parseFloat((get(cols, colIVA)||'0').replace(/[Q,]/g,'')) || (conFac ? monto / 13 : 0);
+    rows.push({
+      fecha: normalFecha(get(cols, colFecha)),
+      empleadoNombre: get(cols, colEmp) || 'Sin asignar',
+      categoria: cat,
+      descripcion: get(cols, colDesc) || cat,
+      monto: monto,
+      deducible: ded,
+      tieneFactura: conFac,
+      ivaAcreditado: parseFloat(ivaRaw.toFixed(2)),
+      notas: get(cols, colNotas)
+    });
+  });
+  return rows;
+}
+
+function mostrarPreviewViaticos(rows, container) {
+  var total = rows.reduce(function(a,r){ return a+r.monto; }, 0);
+  var errores = rows.filter(function(r){ return !r.fecha || !r.monto; }).length;
+  container.innerHTML = '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center">'
+    + '<div><div style="font-size:20px;font-weight:700;color:var(--green)">' + rows.length + '</div><div style="font-size:11px;color:var(--text3)">Registros</div></div>'
+    + '<div><div style="font-size:18px;font-weight:700;color:var(--accent)">Q ' + total.toFixed(2) + '</div><div style="font-size:11px;color:var(--text3)">Total</div></div>'
+    + '<div><div style="font-size:20px;font-weight:700;color:'+(errores>0?'var(--red)':'var(--green)')+'">'+errores+'</div><div style="font-size:11px;color:var(--text3)">Errores</div></div>'
+    + '</div></div>'
+    + '<div style="max-height:180px;overflow-y:auto;margin-bottom:12px"><table class="table"><thead><tr><th>Fecha</th><th>Empleado</th><th>Categoría</th><th>Monto</th><th>Factura</th></tr></thead>'
+    + '<tbody>' + rows.slice(0,8).map(function(r){
+        return '<tr><td>'+r.fecha+'</td><td>'+r.empleadoNombre+'</td><td>'+r.categoria+'</td>'
+          +'<td style="font-family:var(--font-mono)">Q '+r.monto.toFixed(2)+'</td>'
+          +'<td><span class="badge badge-'+(r.tieneFactura?'green':'amber')+'">'+(r.tieneFactura?'Sí':'No')+'</span></td></tr>';
+      }).join('')
+    + (rows.length>8?'<tr><td colspan="5" style="text-align:center;color:var(--text3);font-size:11px">...y '+(rows.length-8)+' más</td></tr>':'')
+    + '</tbody></table></div>'
+    + '<button class="btn btn-primary" style="width:100%" onclick="importarViaticosConfirmar(window._viatRows)">✓ Importar ' + rows.length + ' registros</button>';
+  window._viatRows = rows;
+}
+
+async function importarViaticosConfirmar(rows) {
+  // Si no se pasaron rows, intentar obtener de window
+  if (!rows || !rows.length) rows = window._viatRows;
+  if (!rows || !rows.length) { toast('No hay datos para importar. Vuelve a cargar el archivo.', 'red'); return; }
+  var empleados = await dbGetAll('empleados');
+  var count = 0;
+  for (var i=0; i<rows.length; i++) {
+    var r = rows[i];
+    // Intentar encontrar el empleado por nombre
+    var emp = empleados.find(function(e){
+      return e.nombre.toLowerCase().includes(r.empleadoNombre.toLowerCase()) ||
+             r.empleadoNombre.toLowerCase().includes(e.nombre.toLowerCase().split(' ')[0]);
+    });
+    await dbAdd('viaticos', {
+      fecha: r.fecha,
+      empleadoId: emp ? emp.id : null,
+      empleadoNombre: emp ? emp.nombre : r.empleadoNombre,
+      categoria: r.categoria,
+      descripcion: r.descripcion,
+      monto: r.monto,
+      deducible: r.deducible,
+      tieneFactura: r.tieneFactura,
+      ivaAcreditado: r.ivaAcreditado,
+      notas: r.notas,
+      importadoMasivo: true,
+      createdAt: nowTs()
+    });
+    // NO registrar individualmente en costos (se registran como total mensual)
+    count++;
+  }
+  await logAuditoria('IMPORTAR','viaticos','Viáticos importados masivo: '+count,{total:count});
+  window._viatRows = null;
+  closeModal('impViaticos');
+  cerrarModal('impViaticos'); // compatibilidad
+  toast('✓ ' + count + ' gastos importados correctamente');
+  await navTo('viaticos');
+}
+
+
+async function registrarTotalViaticosMes() {
+  var mes = today().slice(0,7);
+  var viaticos = await dbGetAll('viaticos');
+  var delMes = viaticos.filter(function(v){ return (v.fecha||'').startsWith(mes); });
+  if (!delMes.length) { toast('No hay viáticos registrados para '+mes, 'amber'); return; }
+  var total = delMes.reduce(function(a,v){ return a+(v.monto||0); }, 0);
+  var costos = await dbGetAll('costos');
+  var yaExiste = costos.some(function(c){ return c.tipoViaticos && c.fechaMes===mes; });
+  if (yaExiste && !confirm('Ya existe un registro de viáticos para '+mes+'. ¿Reemplazar?')) return;
+  var d = new Date(mes+'-01T12:00:00');
+  var label = d.toLocaleDateString('es-GT',{month:'long',year:'numeric'});
+  // Agrupar por categoría para la descripción
+  var porCat = {};
+  delMes.forEach(function(v){ var c=v.categoria||'otro'; porCat[c]=(porCat[c]||0)+(v.monto||0); });
+  var detalle = Object.entries(porCat).map(function(e){ return e[0]+': Q'+e[1].toFixed(0); }).join(', ');
+  await dbAdd('costos', {
+    fecha: mes+'-01', fechaMes: mes,
+    tipo: 'Viáticos y Gastos',
+    descripcion: 'Total viáticos '+label+' ('+delMes.length+' registros) — '+detalle,
+    monto: parseFloat(total.toFixed(2)),
+    categoria: 'Viáticos y gastos',
+    tipoViaticos: true, pagado: true,
+    createdAt: nowTs(), updatedAt: nowTs()
+  });
+  await logAuditoria('REGISTRAR','costos','Total viáticos '+mes+': Q'+total.toFixed(2),{});
+  toast('✓ Q '+total.toFixed(2)+' registrado en Costos Operativos para '+label);
+}
+
+async function renderViaticos(content, actions) {
+  if(!soloAdmin()&&!esSup()){content.innerHTML='<div class="alert alert-red">Sin acceso</div>';return;}
+  var viaticos = await dbGetAll('viaticos');
+  var empleados = await dbGetAll('empleados');
+  viaticos.sort(function(a,b){return (a.fecha||'')<(b.fecha||'')?1:-1;});
+  actions.innerHTML='<button class="btn btn-primary" onclick="modalViatico()">+ Registrar gasto</button>'
+    +' <button class="btn btn-secondary" onclick="mostrarImportarViaticos()">📥 Importar CSV/Excel</button>'
+    +' <button class="btn btn-secondary" onclick="registrarTotalViaticosMes()">💰 Registrar total en costos</button>'
+    +' <button class="btn btn-secondary" onclick="exportarCSV(\'viaticos\')">Exportar CSV</button>';
+
+  var regimen = getRegimen();
+  var mes = today().slice(0,7);
+  var totMes = viaticos.filter(function(v){return v.fecha&&v.fecha.startsWith(mes);}).reduce(function(a,v){return a+(v.monto||0);},0);
+  var totDed = viaticos.filter(function(v){return v.fecha&&v.fecha.startsWith(mes)&&v.deducible;}).reduce(function(a,v){return a+(v.monto||0);},0);
+  var totIVAcred = regimen.creditoIVA
+    ? viaticos.filter(function(v){return v.fecha&&v.fecha.startsWith(mes)&&v.deducible&&v.tieneFactura;}).reduce(function(a,v){return a+(v.ivaAcreditado||0);},0)
+    : 0;
+
+  var CATS = {
+    almuerzo:{label:'Almuerzo',icono:'A',color:'green',deducible:true},
+    desayuno:{label:'Desayuno',icono:'D',color:'green',deducible:true},
+    cena:{label:'Cena',icono:'C',color:'green',deducible:true},
+    combustible:{label:'Combustible',icono:'G',color:'blue',deducible:true},
+    hospedaje:{label:'Hospedaje',icono:'H',color:'blue',deducible:true},
+    transporte:{label:'Transporte',icono:'T',color:'blue',deducible:true},
+    peaje:{label:'Peaje/Parqueo',icono:'P',color:'gray',deducible:true},
+    herramientas:{label:'Herramientas',icono:'HE',color:'amber',deducible:true},
+    comunicaciones:{label:'Comunicaciones',icono:'COM',color:'purple',deducible:true},
+    otro:{label:'Otro gasto',icono:'OT',color:'gray',deducible:false}
+  };
+
+  var rows = viaticos.slice(0,50).map(function(v){
+    var emp = empleados.find(function(e){return e.id===v.empleadoId;});
+    var cat = CATS[v.categoria]||CATS.otro;
     return '<tr>'
-      +'<td>'+(cli?cli.nombre:'---')+'</td>'
-      +'<td class="td-mono">'+v.placa+'</td>'
-      +'<td style="font-size:11px">'+v.marca+' '+v.modelo+'</td>'
-      +'<td>'+(v.tipoServicio||'Servicio')+'</td>'
-      +'<td>'+fechaLegible(v.proximoServicio)+'</td>'
-      +'<td><span class="badge badge-'+col+'">'+label+'</span></td>'
-      +'<td style="font-size:11px">'+(tel||'Sin tel.')+'</td>'
+      +'<td>'+fechaLegible(v.fecha)+'</td>'
+      +'<td><span class="badge badge-'+cat.color+'">'+cat.icono+'</span> '+cat.label+'</td>'
+      +'<td>'+(emp?emp.nombre:v.empleadoNombre||'---')+'</td>'
+      +'<td style="font-size:11px">'+(v.descripcion||'---')+'</td>'
+      +'<td class="td-mono td-right text-red">Q '+(v.monto||0).toFixed(2)+'</td>'
+      +'<td class="td-mono td-right text-amber">'+(v.ivaAcreditado>0?'Q '+v.ivaAcreditado.toFixed(2):'---')+'</td>'
+      +'<td><span class="badge badge-'+(v.deducible?'green':'gray')+'">'+(v.deducible?'Deducible':'No ded.')+'</span></td>'
+      +'<td><span class="badge badge-'+(v.tieneFactura?'green':'amber')+'">'+(v.tieneFactura?'Con factura':'Sin factura')+'</span></td>'
       +'<td><div class="flex gap-1">'
-      +(tel?'<button class="btn btn-sm btn-green" onclick="enviarMsgServicio('+v.clienteId+','+v.id+')">Enviar</button>':'')
-      +'<button class="btn btn-sm btn-secondary" onclick="previewMsg('+v.clienteId+','+v.id+')">Preview</button>'
+      +'<button class="btn btn-sm btn-secondary" onclick="modalViatico('+v.id+')">Editar</button>'
+      +'<button class="btn btn-sm btn-danger" onclick="borrarViatico('+v.id+')">X</button>'
       +'</div></td></tr>';
   }).join('');
 
-  content.innerHTML = '<div class="section-title">WhatsApp Bot</div>'
-    +'<div class="section-sub">Notificaciones automaticas via CallMeBot</div>'
-
-    // Config
-    +'<div class="card"><div class="card-header"><span class="card-title">Configuracion CallMeBot</span>'
-    +'<button class="btn btn-sm btn-primary" onclick="guardarConfigWA()">Guardar</button></div>'
-    +'<div class="alert alert-amber" style="font-size:11px">Cada destinatario debe enviar <strong>"I allow callmebot to send me messages"</strong> al <strong>+34 644 44 00 05</strong> en WhatsApp para activarse.'
-    +' <a href="https://www.callmebot.com" target="_blank" style="color:var(--accent)">Ver doc.</a></div>'
-    +'<div class="form-row form-row-2">'
-    +'<div class="form-group"><label>API Key CallMeBot</label><input id="wa_apikey" value="'+(waCfg.apiKey||'')+'" placeholder="Tu API key"></div>'
-    +'<div class="form-group"><label>Tu numero (+502XXXXXXXX)</label><input id="wa_numero" value="'+(waCfg.numero||'')+'" placeholder="+50212345678" onblur="onTelBlur(this)"></div>'
+  content.innerHTML='<div class="section-title">Viaticos y Gastos de Empleados</div>'
+    +'<div class="section-sub">Gastos operativos deducibles segun regimen fiscal: <strong>'+regimen.label+'</strong></div>'
+    +(regimen.creditoIVA
+      ?'<div class="alert alert-blue" style="font-size:11px">Con tu regimen puedes acreditar el IVA de compras con factura contra el IVA de tus ventas. Solo gastos con factura legal son deducibles.</div>'
+      :'<div class="alert alert-amber" style="font-size:11px">En Pequeno Contribuyente no aplica credito fiscal de IVA en compras.</div>')
+    +'<div class="stat-grid">'
+    +'<div class="stat-card stat-red"><div class="stat-label">Total viaticos mes</div><div class="stat-value">Q '+totMes.toFixed(2)+'</div></div>'
+    +'<div class="stat-card stat-green"><div class="stat-label">Monto deducible mes</div><div class="stat-value">Q '+totDed.toFixed(2)+'</div><div class="stat-sub">Reduce utilidad imponible</div></div>'
+    +(regimen.creditoIVA?'<div class="stat-card stat-amber"><div class="stat-label">IVA acreditable mes</div><div class="stat-value">Q '+totIVAcred.toFixed(2)+'</div><div class="stat-sub">Solo con factura legal</div></div>':'')
     +'</div>'
-    +'<div class="form-row form-row-2">'
-    +'<div class="form-group"><label>Dias de anticipacion</label><input id="wa_dias" type="number" value="'+(waCfg.diasAnticipacion||7)+'" min="1" max="30"></div>'
-    +'<div class="form-group"><label>Nombre del taller en mensajes</label><input id="wa_nombre" value="'+(waCfg.nombreTaller||cfg.nombre||'')+'" placeholder="Nombre del taller"></div>'
-    +'</div>'
-    +'<div class="form-group"><label>Plantilla (usa {cliente}, {placa}, {modelo}, {fecha}, {servicio}, {taller}, {telefono})</label>'
-    +'<textarea id="wa_template" style="min-height:70px">'+(waCfg.template||'Hola {cliente}! Le recordamos que su vehiculo {placa} ({modelo}) tiene programado su *{servicio}* el *{fecha}*. Para reagendar llame a {taller} al {telefono}. Gracias!')+'</textarea></div>'
-    +'</div>'
-
-    // Servicios proximos
-    +'<div class="card"><div class="card-header"><span class="card-title">Servicios proximos ('+proximos.length+')</span></div>'
-    +'<div class="table-wrap"><table>'
-    +'<thead><tr><th>Cliente</th><th>Placa</th><th>Vehiculo</th><th>Servicio</th><th>Fecha</th><th>Estado</th><th>WhatsApp</th><th>Accion</th></tr></thead>'
-    +'<tbody>'+(filasPendientes||'<tr><td colspan="8" class="text-center text-muted" style="padding:12px">Sin servicios proximos</td></tr>')+'</tbody>'
-    +'</table></div></div>'
-
-    // Logs con filtros
-    +'<div class="card"><div class="card-header"><span class="card-title">Historial de mensajes</span>'
-    +'<div class="flex gap-1">'
-    +'<button class="btn btn-sm btn-secondary" onclick="marcarTodosMsgsLeidos()">Todos leidos</button>'
-    +'<button class="btn btn-sm btn-danger" onclick="borrarMsgsLeidos()">Borrar leidos</button>'
-    +'</div></div>'
-    + filtroHtml
-    +'<div class="table-wrap"><table>'
-    +'<thead><tr><th>Fecha</th><th>Destinatario</th><th>Mensaje</th><th>Estado</th><th>Acciones</th></tr></thead>'
-    +'<tbody>'+(filasLogs||'<tr><td colspan="5" class="text-center text-muted" style="padding:12px">Sin mensajes</td></tr>')+'</tbody>'
+    +'<div class="card" style="padding:10px"><div class="table-wrap"><table>'
+    +'<thead><tr><th>Fecha</th><th>Categoria</th><th>Empleado</th><th>Descripcion</th><th class="td-right">Monto</th><th class="td-right">IVA acred.</th><th>Deducible</th><th>Factura</th><th>Acciones</th></tr></thead>'
+    +'<tbody>'+(rows||'<tr><td colspan="9" class="text-center text-muted" style="padding:16px">Sin registros</td></tr>')+'</tbody>'
     +'</table></div></div>';
 }
 
-function filtrarWA(filtro) { window._waFiltro=filtro; navTo('whatsapp'); }
-
-async function marcarMsgLeido(id) {
-  var m = await dbGet('whatsapp_logs',id);
-  if (m) { m.leido=true; await dbPut('whatsapp_logs',m); }
-  navTo('whatsapp');
+async function modalViatico(id) {
+  var empleados = await dbGetAll('empleados');
+  var v = id ? await dbGetAll('viaticos').then(function(all){return all.find(function(x){return x.id===id;});}) : {};
+  v = v || {};
+  var regimen = getRegimen();
+  var empOpts = empleados.filter(function(e){return e.activo!==false;}).map(function(e){
+    return '<option value="'+e.id+'"'+(v.empleadoId===e.id?' selected':'')+'>'+e.nombre+'</option>';
+  }).join('');
+  var cats = [
+    ['almuerzo','Almuerzo'],['desayuno','Desayuno'],['cena','Cena'],
+    ['combustible','Combustible'],['hospedaje','Hospedaje'],['transporte','Transporte'],
+    ['peaje','Peaje / Parqueo'],['herramientas','Herramientas'],
+    ['comunicaciones','Comunicaciones (telefono, internet)'],['otro','Otro gasto']
+  ];
+  openModal('viat', id?'Editar Gasto':'Registrar Viatico / Gasto',
+    '<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Empleado *</label><select id="vt_emp">'+empOpts+'</select></div>'
+    +'<div class="form-group"><label>Fecha *</label><input id="vt_fec" type="date" value="'+(v.fecha||today())+'"></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Categoria *</label><select id="vt_cat" onchange="calcIVAViatico()">'+cats.map(function(c){return '<option value="'+c[0]+'"'+(v.categoria===c[0]?' selected':'')+'>'+c[1]+'</option>';}).join('')+'</select></div>'
+    +'<div class="form-group"><label>Descripcion</label><input id="vt_des" value="'+(v.descripcion||'')+'" placeholder="Detalle del gasto"></div>'
+    +'</div>'
+    +'<div class="form-row form-row-3">'
+    +'<div class="form-group"><label>Monto total (Q) *</label><input id="vt_mon" type="number" value="'+(v.monto||'')+'" step="0.01" min="0" oninput="calcIVAViatico()"></div>'
+    +'<div class="form-group"><label>IVA incluido en el monto</label><input id="vt_iva" type="number" value="'+(v.ivaAcreditado||'')+'" step="0.01" min="0" readonly style="background:var(--bg4)"><div class="form-hint">Se calcula automaticamente si tiene factura</div></div>'
+    +'<div class="form-group"><label>No. Factura / Recibo</label><input id="vt_fac" value="'+(v.noFactura||'')+'" placeholder="No. de documento"></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>NIT del proveedor</label><input id="vt_nit" value="'+(v.nitProveedor||'')+'" placeholder="NIT del restaurant, gasolinera..."></div>'
+    +'<div class="form-group"><label>Nombre del proveedor</label><input id="vt_prov" value="'+(v.proveedor||'')+'" placeholder="Nombre del lugar"></div>'
+    +'</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label><input type="checkbox" id="vt_tiene_fac" style="width:auto;margin-right:6px"'+(v.tieneFactura?' checked':'')+' onchange="calcIVAViatico()"> Tiene factura legal (habilita IVA acreditable)</label></div>'
+    +'<div class="form-group"><label><input type="checkbox" id="vt_ded" style="width:auto;margin-right:6px"'+(v.deducible!==false?' checked':'')+' '+(regimen.creditoIVA?'':'disabled')+'>Gasto deducible del ISR</label></div>'
+    +'</div>'
+    +(regimen.creditoIVA?'<div class="alert alert-green" style="font-size:11px">Con factura: el IVA de este gasto se puede acreditar contra el IVA de tus ventas.</div>':'<div class="alert alert-amber" style="font-size:11px">En tu regimen fiscal no aplica credito de IVA en compras.</div>'),
+    async function(){
+      var empId = parseInt(document.getElementById('vt_emp').value);
+      var monto = parseFloat(document.getElementById('vt_mon').value)||0;
+      if(!empId||!monto){toast('Empleado y monto requeridos','red');return;}
+      var emp = empleados.find(function(e){return e.id===empId;});
+      var tieneFac = document.getElementById('vt_tiene_fac').checked;
+      var iva = tieneFac ? parseFloat(document.getElementById('vt_iva').value)||0 : 0;
+      var obj={
+        empleadoId:empId, empleadoNombre:emp?emp.nombre:'',
+        fecha:document.getElementById('vt_fec').value,
+        categoria:document.getElementById('vt_cat').value,
+        descripcion:document.getElementById('vt_des').value.trim(),
+        monto:monto, ivaAcreditado:iva,
+        noFactura:document.getElementById('vt_fac').value.trim(),
+        nitProveedor:document.getElementById('vt_nit').value.trim(),
+        proveedor:document.getElementById('vt_prov').value.trim(),
+        tieneFactura:tieneFac,
+        deducible:document.getElementById('vt_ded').checked,
+        updatedAt:nowTs()
+      };
+      if(id){obj.id=id;await dbPut('viaticos',obj);}else{obj.createdAt=nowTs();await dbAdd('viaticos',obj);}
+      // Registrar en costos operativos
+      await dbAdd('costos',{fecha:obj.fecha,categoria:'Viaticos - '+obj.categoria,
+        descripcion:(emp?emp.nombre+': ':'')+obj.descripcion,monto:monto,
+        proveedor:obj.proveedor,recurrente:false,createdAt:nowTs()});
+      cerrarModal('viat');toast(id?'Gasto actualizado':'Gasto registrado');
+      await navTo('viaticos');
+    },true);
+  setTimeout(calcIVAViatico,100);
 }
 
-async function borrarMsgWA(id) {
-  await dbDelete('whatsapp_logs',id);
-  navTo('whatsapp');
+function calcIVAViatico(){
+  var tieneFac=document.getElementById('vt_tiene_fac');
+  var mon=parseFloat(document.getElementById('vt_mon').value)||0;
+  var ivaEl=document.getElementById('vt_iva');
+  if(!ivaEl)return;
+  var regimen=getRegimen();
+  if(tieneFac&&tieneFac.checked&&regimen.creditoIVA&&mon>0){
+    // El IVA esta incluido en el monto: IVA = monto * 12/112
+    var iva=parseFloat((mon*regimen.iva/(1+regimen.iva)).toFixed(2));
+    ivaEl.value=iva;
+    ivaEl.style.color='var(--green)';
+  }else{
+    ivaEl.value='0';
+    ivaEl.style.color='var(--text3)';
+  }
 }
 
-async function marcarTodosMsgsLeidos() {
-  var all = await dbGetAll('whatsapp_logs');
-  for (var i=0;i<all.length;i++) { all[i].leido=true; await dbPut('whatsapp_logs',all[i]); }
-  toast('Todos marcados como leidos');
-  navTo('whatsapp');
+async function borrarViatico(id){
+  if(!confirm('Eliminar este gasto?'))return;
+  await dbDelete('viaticos',id);
+  await navTo('viaticos');
 }
 
-async function borrarMsgsLeidos() {
-  if (!confirm('Eliminar todos los mensajes leidos?')) return;
-  var all = await dbGetAll('whatsapp_logs');
-  var leidos = all.filter(function(m){return m.leido;});
-  for (var i=0;i<leidos.length;i++) await dbDelete('whatsapp_logs',leidos[i].id);
-  toast(leidos.length+' mensajes eliminados');
-  navTo('whatsapp');
+// ---- SIDEBAR DINAMICO CON NOMBRE DE EMPRESA ----
+
+
+// ---- IVA/ISR SEGUN REGIMEN CONFIGURABLE ----
+async function renderImpuestos(content, actions) {
+  if(!soloAdmin()){content.innerHTML='<div class="alert alert-red">Solo administradores</div>';return;}
+  var cfg = await dbGet('config','taller') || {};
+  var regimen = getRegimen();
+  var regimenKey = window._regimenFiscal || 'regimen_utilidades';
+  var facturas = await dbGetAll('facturas');
+  var costos   = await dbGetAll('costos');
+  var viaticos = await dbGetAll('viaticos');
+  var empleados = await dbGetAll('empleados');
+  var anio = new Date().getFullYear();
+  var activos = empleados.filter(function(e){return e.activo!==false;});
+
+  var cargaLabMensual = activos.reduce(function(a,e){
+    var sal=e.salarioBase||0;
+    return a+sal+sal*0.1267+sal*0.01+sal*0.01+250+sal/12+sal/12+(sal/30)*15/12+sal/12;
+  },0);
+
+  // Selector de regimen
+  var regOpts = Object.entries(REGIMENES_FISCAL).map(function(entry){
+    return '<option value="'+entry[0]+'"'+(regimenKey===entry[0]?' selected':'')+'>'+entry[1].label+'</option>';
+  }).join('');
+
+  var trimestres = [
+    {label:'1er Trimestre (Ene-Mar)',meses:['01','02','03'],vence:anio+'-04-30'},
+    {label:'2do Trimestre (Abr-Jun)',meses:['04','05','06'],vence:anio+'-07-31'},
+    {label:'3er Trimestre (Jul-Sep)',meses:['07','08','09'],vence:anio+'-10-31'},
+    {label:'4to Trimestre (Oct-Dic)',meses:['10','11','12'],vence:(anio+1)+'-01-31'}
+  ];
+
+  var tarjetas = trimestres.map(function(tri){
+    var ingBruto=0,costosT=0,viaticosT=0,ivaCompras=0;
+    tri.meses.forEach(function(m){
+      var pre=anio+'-'+m;
+      ingBruto+=facturas.filter(function(f){return f.fecha&&f.fecha.startsWith(pre);}).reduce(function(a,f){return a+(f.subtotal||0);},0);
+      costosT+=costos.filter(function(c){return c.fecha&&c.fecha.startsWith(pre);}).reduce(function(a,c){return a+(c.monto||0);},0);
+      viaticosT+=viaticos.filter(function(v){return v.fecha&&v.fecha.startsWith(pre)&&v.deducible;}).reduce(function(a,v){return a+(v.monto||0);},0);
+      ivaCompras+=viaticos.filter(function(v){return v.fecha&&v.fecha.startsWith(pre)&&v.tieneFactura&&v.deducible;}).reduce(function(a,v){return a+(v.ivaAcreditado||0);},0);
+    });
+    var cargaLab=cargaLabMensual*3;
+    var ivaDeb=facturas.filter(function(f){
+      return f.fecha&&tri.meses.some(function(m){return f.fecha.startsWith(anio+'-'+m);});
+    }).reduce(function(a,f){return a+(f.iva||0);},0);
+    var ivaNet=ivaDeb-ivaCompras;
+    var isr=0,utilidad=0,base=0;
+    if(regimen.isrTipo==='utilidades'){
+      var deducibles=regimen.deducibles.length>0?(costosT+cargaLab+viaticosT):0;
+      utilidad=Math.max(0,ingBruto-deducibles);
+      isr=utilidad*regimen.isr;
+      base=utilidad;
+    }else if(regimen.isrTipo==='bruto_mensual'){
+      base=ingBruto;
+      isr=base*regimen.isr;
+    }
+    var dias=Math.round((new Date(tri.vence+'T00:00:00')-new Date())/86400000);
+    var colorV=dias<15?'var(--red)':dias<45?'var(--accent)':'var(--green)';
+    return '<div class="card">'
+      +'<div class="card-header"><span class="card-title">'+tri.label+'</span>'
+      +'<span style="font-size:11px;color:'+colorV+'">Vence: '+fechaLegible(tri.vence)+(dias>0?' ('+dias+'d)':' (VENCIDO)')+'</span></div>'
+      +'<div class="stat-grid" style="grid-template-columns:repeat('+(regimen.creditoIVA?5:4)+',1fr)">'
+      +'<div class="stat-card stat-green"><div class="stat-label">Ingresos netos</div><div class="stat-value" style="font-size:14px">'+fmt(ingBruto)+'</div></div>'
+      +(regimen.deducibles.length>0?'<div class="stat-card stat-red"><div class="stat-label">Costos+Nomina+Viaticos</div><div class="stat-value" style="font-size:14px">'+fmt(costosT+cargaLab+viaticosT)+'</div><div class="stat-sub">Deducibles ISR</div></div>':'')
+      +'<div class="stat-card stat-amber"><div class="stat-label">Base imponible</div><div class="stat-value" style="font-size:14px">'+fmt(base)+'</div></div>'
+      +'<div class="stat-card stat-red"><div class="stat-label">ISR a pagar ('+( regimen.isr*100).toFixed(0)+'%)</div><div class="stat-value" style="font-size:14px">'+fmt(isr)+'</div></div>'
+      +(regimen.creditoIVA?'<div class="stat-card stat-amber"><div class="stat-label">IVA neto SAT</div><div class="stat-value" style="font-size:14px">'+fmt(ivaNet)+'</div><div class="stat-sub">Debito Q'+ivaDeb.toFixed(0)+' - Credito Q'+ivaCompras.toFixed(0)+'</div></div>':'')
+      +'</div></div>';
+  }).join('');
+
+  content.innerHTML='<div class="section-title">IVA / ISR - '+anio+'</div>'
+    +'<div class="section-sub">'+regimen.descripcion+'</div>'
+    +'<div class="card"><div class="card-title" style="margin-bottom:10px">Regimen fiscal activo</div>'
+    +'<div class="form-row form-row-2">'
+    +'<div class="form-group"><label>Seleccionar regimen SAT</label>'
+    +'<select id="sel_regimen" onchange="cambiarRegimen()">'+regOpts+'</select></div>'
+    +'<div class="form-group" style="display:flex;align-items:flex-end"><button class="btn btn-primary" onclick="guardarRegimen()">Aplicar regimen</button></div>'
+    +'</div>'
+    +'<div id="regimen_info" style="font-size:12px;color:var(--text2);padding:8px;background:var(--bg3);border-radius:6px">'+regimen.descripcion+'</div>'
+    +'</div>'
+    +tarjetas;
 }
+
+function cambiarRegimen(){
+  var sel=document.getElementById('sel_regimen');
+  var info=document.getElementById('regimen_info');
+  if(!sel||!info)return;
+  var r=REGIMENES_FISCAL[sel.value];
+  if(r)info.innerHTML=r.descripcion;
+}
+
+async function guardarRegimen(){
+  var sel=document.getElementById('sel_regimen');
+  if(!sel)return;
+  var cfg=await dbGet('config','taller')||{};
+  cfg.regimenFiscal=sel.value;
+  cfg.updatedAt=nowTs();
+  await dbPut('config',cfg);
+  window._regimenFiscal=sel.value;
+  window._IVA=getRegimen().iva;
+  toast('Regimen fiscal actualizado: '+getRegimen().label);
+  await navTo('impuestos');
+}
+
+// ---- CONFIGURACION DE NOTIFICACIONES WA EMPRESA ----
+
+
+
 
 // ================================================================
-// 3. RECEPCIONES: INLINE CLIENTE+VEHICULO
+// v3.2 - WA filtros/acciones, Alertas envio por demanda,
+//        Logo empresa en config, Telefono en mensaje WA
 // ================================================================
 
-async
+// ---- WHATSAPP: MENSAJE CON TELEFONO DE EMPRESA ----
+async function construirMensaje(clienteId, vehiculoId, template) {
+  var cli = await dbGet('clientes', clienteId);
+  var veh = await dbGet('vehiculos', vehiculoId);
+  var cfg = await dbGet('config','taller') || {};
+  var waCfg = await dbGet('config','whatsapp') || {};
+  if (!cli || !veh) return null;
+  var tplBase = template || waCfg.template
+    || 'Hola {cliente}! Le recordamos que su vehiculo {placa} ({modelo}) tiene programado su *{servicio}* el *{fecha}*. Para reagendar llame a {taller} al {telefono}. Gracias!';
+  var msg = tplBase
+    .replace(/{cliente}/g, cli.nombre)
+    .replace(/{placa}/g, veh.placa)
+    .replace(/{modelo}/g, (veh.marca||'')+' '+(veh.modelo||''))
+    .replace(/{fecha}/g, veh.proximoServicio||'proxima semana')
+    .replace(/{servicio}/g, veh.tipoServicio||'mantenimiento preventivo')
+    .replace(/{taller}/g, waCfg.nombreTaller||cfg.nombre||'el taller')
+    .replace(/{telefono}/g, cfg.telefono||waCfg.numero||'---');
+  return {msg:msg, tel:cli.whatsapp||cli.telefono||'', clienteNombre:cli.nombre};
+}
+
+// ---- ALERTAS: ENVIO POR DEMANDA + FILTROS ----
+async function renderAlertas(content, actions) {
+  await generarAlertas_v2();
+  var alertas = await dbGetAll('alertas');
+  var waCfg   = await dbGet('config','whatsapp') || {};
+  var notif   = await dbGet('config','notificaciones') || {};
+
+  alertas.sort(function(a,b){
+    var p={alta:0,media:1,baja:2};
+    return ((p[a.prioridad]||1)-(p[b.prioridad]||1)) || ((a.fecha||'')<(b.fecha||'')?1:-1);
+  });
+
+  var filtroActivo = window._alertaFiltro || 'todas';
+  var pendientes = alertas.filter(function(a){return !a.vista;});
+  var leidas     = alertas.filter(function(a){return a.vista;});
+  var noEnviadas = alertas.filter(function(a){return !a.vista && !a.enviadaWA;});
+
+  actions.innerHTML =
+    '<button class="btn btn-secondary" onclick="marcarTodasLeidas()">Todas leidas</button>'
+    + (waCfg.apiKey && notif.enviarWA
+      ? ' <button class="btn btn-green" onclick="enviarAlertasPorDemanda()">Enviar por WA ('+(noEnviadas.length)+')</button>'
+      : '')
+    + ' <button class="btn btn-danger btn-sm" onclick="borrarAlertasLeidas()">Borrar leidas</button>';
+
+  // Filtros
+  var filtros = [
+    {k:'todas', label:'Todas ('+alertas.length+')'},
+    {k:'pendientes', label:'Pendientes ('+pendientes.length+')'},
+    {k:'alta', label:'Urgentes ('+alertas.filter(function(a){return a.prioridad==='alta'&&!a.vista;}).length+')'},
+    {k:'enviadas', label:'Enviadas WA'},
+    {k:'leidas', label:'Leidas'},
+  ];
+  var filtroHTML = '<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">'
+    + filtros.map(function(f){
+      return '<button class="btn btn-sm '+(filtroActivo===f.k?'btn-primary':'btn-secondary')+'" onclick="filtrarAlertas(\''+f.k+'\')">'+f.label+'</button>';
+    }).join('')+'</div>';
+
+  var icons = {mantenimiento:'[M]',stock:'[S]',vencimiento:'[V]',cobro:'[C]',correctivo:'[!]',margen:'[%]'};
+
+  function alertaItem(a, dim) {
+    var enviadaBadge = a.enviadaWA
+      ? ' <span class="badge badge-blue" style="font-size:9px">WA enviado</span>'
+      : '';
+    return '<div class="alert-item" style="'+(dim?'opacity:.5':'')+'" id="alrt_'+a.id+'">'
+      + '<span style="font-size:14px;font-family:var(--font-mono);color:var(--text3)">'+(icons[a.tipo]||'[*]')+'</span>'
+      + '<div style="flex:1">'
+      +   '<div style="font-weight:600;font-size:13px">'+a.titulo
+      +     (a.prioridad==='alta'?' <span class="badge badge-red">Urgente</span>':a.prioridad==='media'?' <span class="badge badge-amber">Media</span>':'')
+      +     enviadaBadge+'</div>'
+      +   '<div style="font-size:12px;color:var(--text2);margin-top:2px">'+(a.descripcion||'')+'</div>'
+      +   '<div style="font-size:10px;color:var(--text3);margin-top:2px">'+fechaLegible(a.fecha)+'</div>'
+      + '</div>'
+      + '<div style="display:flex;gap:5px;flex-shrink:0">'
+      +   (waCfg.apiKey && !a.enviadaWA ? '<button class="btn btn-sm btn-green" onclick="enviarAlertaWA('+a.id+')">WA</button>' : '')
+      +   (!a.vista ? '<button class="btn btn-sm btn-secondary" onclick="marcarLeida('+a.id+')">Leido</button>' : '')
+      +   '<button class="btn btn-sm btn-danger" onclick="borrarAlertaItem('+a.id+')">X</button>'
+      + '</div>'
+      + '</div>';
+  }
+
+  var lista = alertas.filter(function(a){
+    if(filtroActivo==='pendientes') return !a.vista;
+    if(filtroActivo==='alta') return a.prioridad==='alta'&&!a.vista;
+    if(filtroActivo==='enviadas') return a.enviadaWA;
+    if(filtroActivo==='leidas') return a.vista;
+    return true;
+  });
+
+  var htmlLista = lista.length
+    ? lista.map(function(a){ return alertaItem(a, a.vista); }).join('')
+    : '<div class="alert alert-green">Sin alertas en este filtro</div>';
+
+  content.innerHTML = '<div class="section-title">Centro de Alertas</div>'
+    + '<div class="section-sub">'+pendientes.length+' pendientes &mdash; '+noEnviadas.length+' sin enviar por WA</div>'
+    + filtroHTML
+    + htmlLista;
+}
+
+function filtrarAlertas(filtro) {
+  window._alertaFiltro = filtro;
+  navTo('alertas');
+}
+
+async function enviarAlertaWA(alertaId) {
+  var a = await dbGet('alertas', alertaId);
+  if (!a) return;
+  var waCfg   = await dbGet('config','whatsapp') || {};
+  var notif   = await dbGet('config','notificaciones') || {};
+  var cfg     = await dbGet('config','taller') || {};
+  if (!waCfg.apiKey) { toast('Configura CallMeBot en WhatsApp Bot','amber'); return; }
+  var numeros = [];
+  if (notif.numGerente) numeros.push(notif.numGerente);
+  if (notif.numAdmin)   numeros.push(notif.numAdmin);
+  if (notif.numJefeTaller) numeros.push(notif.numJefeTaller);
+  if (!numeros.length) { toast('Configura numeros de empresa en Configuracion','amber'); return; }
+  var msg = 'ALERTA '+(a.prioridad==='alta'?'URGENTE':a.prioridad||'').toUpperCase()+'\n'
+    + a.titulo + '\n' + (a.descripcion||'') + '\n'
+    + (cfg.nombre||'TallerPro GT') + ' | Tel: '+(cfg.telefono||'---') + '\n'
+    + fechaLegible(a.fecha);
+  var ok = false;
+  for (var i=0; i<numeros.length; i++) {
+    var tel = numeros[i].replace(/[\s\-()]/g,'');
+    if (!tel.startsWith('+')) tel = '+502'+tel;
+    try { var _r = await enviarWACallMeBot(tel, msg, waCfg.apiKey); ok = _r.ok || true; } catch(e) {}
+    await new Promise(function(r){setTimeout(r,900);});
+  }
+  if (ok) {
+    a.enviadaWA = true; a.fechaEnvioWA = nowTs();
+    await dbPut('alertas', a);
+    toast('Alerta enviada por WhatsApp');
+    navTo('alertas');
+  } else {
+    toast('Error al enviar. Verifica conexion y CallMeBot','red');
+  }
+}
+
+async function enviarAlertasPorDemanda() {
+  var alertas  = await dbGetAll('alertas');
+  var waCfg    = await dbGet('config','whatsapp') || {};
+  var notif    = await dbGet('config','notificaciones') || {};
+  var cfg      = await dbGet('config','taller') || {};
+  var noEnv    = alertas.filter(function(a){return !a.vista && !a.enviadaWA;});
+  if (!noEnv.length) { toast('Todas las alertas ya fueron enviadas','amber'); return; }
+  if (!waCfg.apiKey) { toast('Configura CallMeBot primero','amber'); return; }
+  var numeros = [notif.numGerente,notif.numAdmin,notif.numJefeTaller].filter(Boolean);
+  if (!numeros.length) { toast('Agrega numeros de empresa en Configuracion','amber'); return; }
+  if (!confirm('Enviar '+noEnv.length+' alertas a '+numeros.length+' numero(s)?')) return;
+
+  var resumen = '['+( cfg.nombre||'TALLER')+'] '+new Date().toLocaleString('es-GT')+'\n\n'
+    + noEnv.slice(0,8).map(function(a,i){
+      return (i+1)+'. '+(a.prioridad==='alta'?'[URGENTE] ':'')+a.titulo;
+    }).join('\n')
+    + (noEnv.length>8?'\n...y '+(noEnv.length-8)+' alertas mas.':'')
+    + '\n\nTel: '+(cfg.telefono||'---');
+
+  var ok = false;
+  for (var i=0; i<numeros.length; i++) {
+    var tel = numeros[i].replace(/[\s\-()]/g,'');
+    if (!tel.startsWith('+')) tel = '+502'+tel;
+    try { var _r2 = await enviarWACallMeBot(tel, resumen, waCfg.apiKey); ok = _r2.ok || true; } catch(e) {}
+    await new Promise(function(r){setTimeout(r,900);});
+  }
+  if (ok) {
+    for (var j=0; j<noEnv.length; j++) {
+      noEnv[j].enviadaWA=true; noEnv[j].fechaEnvioWA=nowTs();
+      await dbPut('alertas',noEnv[j]);
+    }
+    toast('Alertas enviadas: '+noEnv.length);
+  } else {
+    toast('Error de red','red');
+  }
+  navTo('alertas');
+}
+
+async function marcarLeida(id) {
+  var a = await dbGet('alertas',id); if(a){a.vista=true;await dbPut('alertas',a);}
+  navTo('alertas');
+}
+async function marcarTodasLeidas() {
+  var all = await dbGetAll('alertas');
+  for(var i=0;i<all.length;i++){all[i].vista=true;await dbPut('alertas',all[i]);}
+  toast('Todas marcadas como leidas');
+  navTo('alertas');
+}
+async function borrarAlertaItem(id) {
+  await dbDelete('alertas',id);
+  navTo('alertas');
+}
+async function borrarAlertasLeidas() {
+  if (!confirm('Eliminar todas las alertas ya leidas?')) return;
+  var all = await dbGetAll('alertas');
+  var leidas = all.filter(function(a){return a.vista;});
+  for(var i=0;i<leidas.length;i++) await dbDelete('alertas',leidas[i].id);
+  toast(leidas.length+' alertas eliminadas');
+  navTo('alertas');
+}
+
+// ---- LOGO EN SIDEBAR Y MODULO CONFIG ----
+async function actualizarSidebarEmpresa() {
+  var cfg = await dbGet('config','taller') || {};
+  var eEl = document.getElementById('sidebar-empresa');
+  var nEl = document.getElementById('sidebar-nit');
+  var logoImg = document.getElementById('sidebar-logo-img');
+  if (eEl) eEl.textContent = cfg.nombre || 'Mi Empresa';
+  if (nEl) nEl.textContent = 'NIT: '+(cfg.nit||'---');
+  // Cargar logo si existe
+  if (logoImg) {
+    var logoData = localStorage.getItem('tpgt_logo');
+    if (logoData) {
+      logoImg.src = logoData;
+      logoImg.style.display = 'block';
+    } else {
+      logoImg.style.display = 'none';
+    }
+  }
+  // Actualizar logo en topbar si existe
+  var topLogo = document.getElementById('topbar-logo-img');
+  if (topLogo) {
+    var ld2 = localStorage.getItem('tpgt_logo');
+    topLogo.src = ld2||''; topLogo.style.display = ld2?'inline-block':'none';
+  }
+}
+
+function cargarLogoEmpresa() {
+  var input = document.createElement('input');
+  input.type = 'file'; input.accept = 'image/*';
+  input.onchange = function(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 500*1024) { toast('Imagen demasiado grande. Max 500KB','red'); return; }
+    var rd = new FileReader();
+    rd.onload = function(ev) {
+      localStorage.setItem('tpgt_logo', ev.target.result);
+      actualizarSidebarEmpresa();
+      // Mostrar preview en config
+      var prev = document.getElementById('logo_preview');
+      if (prev) { prev.src=ev.target.result; prev.style.display='block'; }
+      toast('Logo cargado correctamente');
+    };
+    rd.readAsDataURL(file);
+  };
+  input.click();
+}
+
+function borrarLogo() {
+  localStorage.removeItem('tpgt_logo');
+  actualizarSidebarEmpresa();
+  var prev = document.getElementById('logo_preview');
+  if (prev) { prev.src=''; prev.style.display='none'; }
+  toast('Logo eliminado');
+}
+
+// ---- CONFIGURACION COMPLETA REESCRITA ----
+
+async function resetearBaseDatos() {
+  // Rescatar usuarios antes de borrar
+  var usuariosBackup = [];
+  try {
+    var todos = await dbGetAll('usuarios');
+    // Conservar solo: demo, admin, y cualquier usuario con perfil admin activo
+    usuariosBackup = todos.filter(function(u) {
+      return u.username === 'demo' || u.username === 'admin' || (u.perfil === 'admin' && u.activo !== false);
+    });
+  } catch(e) {}
+
+  // Guardar localStorage antes de borrar
+  var licBackup    = localStorage.getItem('tpgt_licencia');
+  var tallerBackup = localStorage.getItem('tpgt_taller_id');
+  var perfilBackup = localStorage.getItem('tpgt_taller_profile');
+
+  // Borrar DB
+  if (db) { try { db.close(); } catch(e) {} }
+  await new Promise(function(res) {
+    var req = indexedDB.deleteDatabase(DB_NAME);
+    req.onsuccess = res; req.onerror = res; req.onblocked = res;
+  });
+
+  // Restaurar localStorage
+  if (licBackup)    localStorage.setItem('tpgt_licencia', licBackup);
+  if (tallerBackup) localStorage.setItem('tpgt_taller_id', tallerBackup);
+  if (perfilBackup) localStorage.setItem('tpgt_taller_profile', perfilBackup);
+
+  // Re-abrir DB y restaurar usuarios conservados
+  try {
+    db = await initDB();
+    // Asegurar que demo/admin existen con sus passwords originales
+    var hayDemo  = usuariosBackup.find(function(u){ return u.username==='demo'; });
+    var hayAdmin = usuariosBackup.find(function(u){ return u.username==='admin'; });
+    if (!hayDemo) usuariosBackup.push({nombre:'Demo Admin',username:'demo',passwordHash:hashSimple('demo123'),esDemo:true,perfil:'admin',activo:true,createdAt:nowTs()});
+    if (!hayAdmin) usuariosBackup.push({nombre:'Administrador',username:'admin',passwordHash:hashSimple('admin123'),esDemo:false,perfil:'admin',activo:true,createdAt:nowTs()});
+    for (var j=0; j<usuariosBackup.length; j++) {
+      var u = Object.assign({}, usuariosBackup[j]);
+      delete u.id; // dejar que autoIncrement asigne nuevo id
+      await dbAdd('usuarios', u);
+    }
+  } catch(e) { console.error('Error restaurando usuarios:', e); }
+
+  toast('✓ Base de datos reiniciada. Los usuarios se conservaron.');
+  setTimeout(function(){ location.reload(); }, 1500);
+}
+

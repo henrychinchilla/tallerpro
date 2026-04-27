@@ -872,7 +872,7 @@ let sesionActual=null;
 const PERFILES={
   admin:{label:'Administrador',color:'red',nivel:3,permisos:['todo']},
   supervisor:{label:'Supervisor',color:'amber',nivel:2,permisos:['ordenes','clientes','vehiculos','repuestos','insumos','recepciones','facturas','proveedores','empleados','alertas','kpi']},
-  operador:{label:'Operador',color:'blue',nivel:1,permisos:['ordenes','clientes','vehiculos','recepciones','repuestos','insumos','alertas']}
+  operador:{label:'Operador',color:'blue',nivel:1,permisos:['ordenes','clientes','vehiculos','recepciones','repuestos','insumos','alertas']}-
 };
 
 function puedeAcceder(modulo){
@@ -917,7 +917,42 @@ async function cargarSesion(){
   if(ses){sesionActual=ses;return true;}
   return false;
 }
+async function login() {
+  const email = document.getElementById('username').value;
+  const password = document.getElementById('password').value;
 
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: email,
+    password: password
+  });
+
+  if (error) {
+    alert('Error: ' + error.message);
+    return;
+  }
+
+  // Obtener perfil del usuario
+  const user = data.user;
+
+  const { data: perfil, error: errPerfil } = await supabase
+    .from('tp_usuarios')
+    .select('*')
+    .eq('id', user.id)
+    .single();
+
+  if (errPerfil) {
+    alert('No se pudo cargar perfil');
+    return;
+  }
+
+  console.log('Usuario logueado:', perfil);
+
+  // guarda sesión local
+  localStorage.setItem('usuario', JSON.stringify(perfil));
+
+  // redirigir
+  window.location.href = 'dashboard.html';
+}
 function mostrarLogin(){
   document.getElementById('app').style.display='none';
   let loginDiv=document.getElementById('login-screen');

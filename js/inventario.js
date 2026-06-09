@@ -47,9 +47,13 @@ async function renderRepuestos(content,actions){
   </div>`;
 }
 
+var _filtrarTablaTimers={};
 function filtrarTabla(inputId,tbodyId){
-  const q=document.getElementById(inputId)?.value?.toLowerCase()||'';
-  document.querySelectorAll(`#${tbodyId} tr`).forEach(tr=>{tr.style.display=tr.textContent.toLowerCase().includes(q)?'':'none';});
+  clearTimeout(_filtrarTablaTimers[inputId]);
+  _filtrarTablaTimers[inputId]=setTimeout(function(){
+    const q=document.getElementById(inputId)?.value?.toLowerCase()||'';
+    document.querySelectorAll('#'+tbodyId+' tr').forEach(tr=>{tr.style.display=tr.textContent.toLowerCase().includes(q)?'':'none';});
+  },200);
 }
 
 

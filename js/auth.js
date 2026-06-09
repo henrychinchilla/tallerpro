@@ -274,113 +274,6 @@ async function activarLicenciaPagina() {
   }
 }
 
-function estaActivo() { return licenciaActual !== null; }
-
-function diasRestantesLic() {
-  if (!licenciaActual) return 0;
-  var vence = new Date((licenciaActual.vence || licenciaActual.fecha_vence || '') + 'T23:59:59');
-  return Math.max(0, Math.ceil((vence - new Date()) / 86400000));
-}
-
-function actualizarBadgeLicencia() {
-  var badge = document.getElementById('badge_licencia');
-  if (!badge) return;
-  if (licenciaActual) {
-    var dias = diasRestantesLic();
-    if (dias > 30) {
-      badge.textContent = '✓ Licencia activa';
-      badge.style.cssText = 'font-size:11px;font-weight:600;padding:5px 12px;border-radius:6px;cursor:pointer;white-space:nowrap;margin-left:4px;background:var(--green-dim);color:var(--green);border:1px solid rgba(76,175,125,.3)';
-    } else {
-      badge.textContent = '⚠ Vence en ' + dias + ' días';
-      badge.style.cssText = 'font-size:11px;font-weight:600;padding:5px 12px;border-radius:6px;cursor:pointer;white-space:nowrap;margin-left:4px;background:var(--red-dim);color:var(--red);border:1px solid rgba(224,90,78,.3)';
-    }
-  } else {
-    var demo = getDemoInfo();
-    if (demo.vencido) {
-      badge.textContent = '🔒 DEMO VENCIDO';
-      badge.style.cssText = 'font-size:11px;font-weight:600;padding:5px 12px;border-radius:6px;cursor:pointer;white-space:nowrap;margin-left:4px;background:var(--red-dim);color:var(--red);border:1px solid rgba(224,90,78,.5);animation:pulse 2s infinite';
-    } else {
-      badge.textContent = '⚡ DEMO ' + demo.diasRestantes + 'd — Activar';
-      badge.style.cssText = 'font-size:11px;font-weight:600;padding:5px 12px;border-radius:6px;cursor:pointer;white-space:nowrap;margin-left:4px;background:var(--accent-dim);color:var(--accent);border:1px solid rgba(232,168,32,.3)';
-    }
-  }
-  badge.onclick = function(){ abrirModalLicencia(); };
-}
-
-
-async function diagnosticarConexionSupabase() {
-  var modal_body = '<div style="font-family:var(--font-mono);font-size:12px;line-height:2;background:var(--bg3);padding:14px;border-radius:8px">Verificando...</div>';
-  openModal('diag_supa', '🔧 Diagnóstico Supabase', modal_body, function(){}, false);
-
-  var resultados = [];
-  var codigosEncontrados = [];
-
-  try {
-    var hdrs = { "apikey": SUPA_KEY, "Authorization": "Bearer " + SUPA_KEY };
-
-    // Leer todos los registros de tp_licencias
-    var r2 = await fetch(SUPA_URL + "/rest/v1/tp_licencias?select=codigo,taller_nombre,activa,fecha_vence&limit=20", { headers: hdrs });
-    var d2 = await r2.json();
-    resultados.push("Tabla tp_licencias: " + (r2.ok ? "✓ (" + r2.status + ")" : "✗ Error " + r2.status));
-    if (r2.ok && Array.isArray(d2) && d2.length) {
-      d2.forEach(function(lic) { codigosEncontrados.push({tabla:'tp_licencias', lic:lic}); });
-    } else if (r2.ok && Array.isArray(d2) && !d2.length) {
-      resultados.push("⚠ tp_licencias está VACÍA — debes insertar un registro");
-    }
-
-    // Leer todos los registros de licencias
-    var r3 = await fetch(SUPA_URL + "/rest/v1/licencias?select=codigo,taller,activa,fecha_vence&limit=20", { headers: hdrs });
-    var d3 = await r3.json();
-    resultados.push("Tabla licencias: " + (r3.ok ? "✓ (" + r3.status + ")" : "✗ Error " + r3.status));
-    if (r3.ok && Array.isArray(d3) && d3.length) {
-      d3.forEach(function(lic) { codigosEncontrados.push({tabla:'licencias', lic:lic}); });
-    } else if (r3.ok && Array.isArray(d3) && !d3.length) {
-      resultados.push("⚠ licencias está VACÍA — debes insertar un registro");
-    }
-
-  } catch(e) {
-    resultados.push("Error: " + e.message);
-  }
-
-  var codigosHTML = '';
-  if (codigosEncontrados.length) {
-    codigosHTML = '<div style="margin-top:12px"><div style="font-weight:600;font-size:12px;margin-bottom:6px;color:var(--text2)">Códigos en Supabase:</div>'
-      + codigosEncontrados.map(function(item) {
-          var lic = item.lic;
-          var cod = lic.codigo || '—';
-          var act = lic.activa ? '✓ activa' : '✗ inactiva';
-          var vence = lic.fecha_vence || lic.fecha_vence || '—';
-          var nom = lic.taller_nombre || lic.taller || '—';
-          return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:6px;font-family:var(--font-mono);font-size:11px">'
-            + '<div style="color:var(--accent);font-size:13px;font-weight:700;letter-spacing:1px">' + cod + '</div>'
-            + '<div style="color:var(--text3)">' + nom + ' · ' + act + ' · vence: ' + vence + '</div>'
-            + '<div style="color:var(--text3);font-size:10px">tabla: ' + item.tabla + '</div>'
-            + '<button onclick="document.getElementById(\'lic_codigo_pg\').value=\'' + cod + '\';closeModal(\'diag_supa\');" style="margin-top:6px;background:var(--accent);color:#000;border:none;border-radius:4px;padding:4px 10px;font-size:11px;cursor:pointer">Usar este código</button>'
-            + '</div>';
-        }).join('')
-      + '</div>';
-  } else {
-    codigosHTML = '<div style="margin-top:12px;padding:12px;background:var(--red-dim);border-radius:6px;font-size:12px;color:var(--red)">'
-      + '<strong>No hay códigos de licencia en Supabase.</strong><br>'
-      + 'Debes insertar uno en la tabla tp_licencias o licencias.<br><br>'
-      + '<strong>SQL para insertar:</strong></div>'
-      + '<div style="background:var(--bg3);padding:10px;border-radius:6px;font-family:var(--font-mono);font-size:11px;margin-top:6px;user-select:all">'
-      + "INSERT INTO tp_licencias (codigo, taller_nombre, plan, activa, fecha_inicio, fecha_vence)<br>"
-      + "VALUES ('TALLER-001-GT', 'Mi Taller', 'anual', true, CURRENT_DATE, CURRENT_DATE + 365);"
-      + '</div>';
-  }
-
-  var bodyEl = document.querySelector('#modal_diag_supa .modal-body');
-  if (bodyEl) {
-    bodyEl.innerHTML = '<div style="font-family:var(--font-mono);font-size:12px;line-height:2;background:var(--bg3);padding:14px;border-radius:8px">'
-      + resultados.join('<br>')
-      + '</div>'
-      + '<div style="margin-top:8px;font-size:10px;color:var(--text3)">URL: ' + SUPA_URL + '</div>'
-      + codigosHTML;
-  }
-}
-
-
 function abrirModalLicencia() {
   // Eliminar modal anterior si existe
   var old = document.getElementById('lic_modal_overlay');
@@ -760,7 +653,7 @@ const IVA=0.12,ISR=0.25,MARGEN_MIN=0.20;
 // Salarios minimos 2026 - Acuerdo Gubernativo 256-2025
 var SAL_MIN = {
   CE1: {noAgricola:4002.28, agricola:3791.20, maquila:3409.73},
-  CE2: {noAgricola:3816.90, agricola:3625.89, maquila:3221.10}
+  CE2: {noAgricola:3816.90, agricola:3625.89, maquila:3321.10}
 };
 
 const fmt=n=>`Q ${parseFloat(n||0).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
@@ -855,6 +748,16 @@ function fechaLegibleCorta(s){
 function addDays(ds,d){const dt=new Date(ds+'T00:00:00');dt.setDate(dt.getDate()+d);return dt.toISOString().split('T')[0];}
 function diasRestantes(ds){const d=new Date(ds+'T00:00:00');const n=new Date();n.setHours(0,0,0,0);return Math.round((d-n)/(864e5));}
 function hashSimple(s){let h=0;for(let i=0;i<s.length;i++){h=((h<<5)-h)+s.charCodeAt(i);h|=0;}return h.toString(16);}
+async function hashPassword(password) {
+  var enc = new TextEncoder();
+  var salt = getInstallId();
+  var keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
+  var bits = await crypto.subtle.deriveBits({name:'PBKDF2', salt:enc.encode(salt), iterations:100000, hash:'SHA-256'}, keyMaterial, 256);
+  return 'pbkdf2:' + Array.from(new Uint8Array(bits)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function escapeHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
 function numLetras(n){const e=Math.floor(n);const d=Math.round((n-e)*100);return`QUETZALES ${e.toLocaleString('es-GT')} CON ${d.toString().padStart(2,'0')}/100`;}
 
 function toast(msg,type='green'){
@@ -888,9 +791,13 @@ function adminOSupervisor(){return sesionActual?.perfil==='admin'||sesionActual?
 
 async function loginUsuario(username,password){
   const usuarios=await dbGetAll('usuarios');
-  const hash=hashSimple(password);
-  const user=usuarios.find(u=>u.username===username&&u.passwordHash===hash&&u.activo);
+  const legacyHash=hashSimple(password);
+  const newHash=await hashPassword(password);
+  const user=usuarios.find(u=>u.username===username&&u.activo&&(u.passwordHash===legacyHash||u.passwordHash===newHash));
   if(!user)return null;
+  // Upgrade legacy hash on successful login
+  if(user.passwordHash===legacyHash){user.passwordHash=newHash;await dbPut('usuarios',user);}
+
   const ses={key:'sesion_actual',userId:user.id,username:user.username,nombre:user.nombre,perfil:user.perfil,loginAt:nowTs()};
   await dbPut('sesion',ses);
   sesionActual=ses;
@@ -1155,7 +1062,7 @@ async function guardarNuevaPassRecuperacion() {
   if (!p1 || p1.length < 6) { setRecMsg('La contrase\u00f1a debe tener al menos 6 caracteres', 'red'); return; }
   if (p1 !== p2) { setRecMsg('Las contrase\u00f1as no coinciden', 'red'); return; }
   if (!_recUsuario) return;
-  _recUsuario.passwordHash = hashSimple(p1);
+  _recUsuario.passwordHash = await hashPassword(p1);
   _recUsuario.updatedAt = nowTs();
   await dbPut('usuarios', _recUsuario);
   await logAuditoria('CAMBIO_PASS','usuarios','Contraseña recuperada por: '+_recUsuario.username,{});
@@ -1185,8 +1092,9 @@ async function abrirCambiarPassword() {
       if (nueva.length < 6) { toast('Mínimo 6 caracteres','red'); return; }
       if (nueva !== conf) { toast('Las contraseñas no coinciden','red'); return; }
       var user = await dbGet('usuarios', sesionActual.userId);
-      if (!user || user.passwordHash !== hashSimple(actual)) { toast('Contraseña actual incorrecta','red'); return; }
-      user.passwordHash = hashSimple(nueva);
+      var _legH=hashSimple(actual), _newH=await hashPassword(actual);
+      if (!user || (user.passwordHash!==_legH && user.passwordHash!==_newH)) { toast('Contraseña actual incorrecta','red'); return; }
+      user.passwordHash = await hashPassword(nueva);
       user.updatedAt = nowTs();
       await dbPut('usuarios', user);
       await logAuditoria('CAMBIO_PASS','usuarios','Contraseña cambiada por: '+user.username,{});
@@ -1368,7 +1276,7 @@ async function registrarNuevoTaller() {
   // Crear usuario administrador real (no demo)
   await dbAdd('usuarios', {
     nombre: adminNom, username: adminUsr,
-    passwordHash: hashSimple(adminPass),
+    passwordHash: await hashPassword(adminPass),
     perfil: 'admin', esDemo: false,
     email: (document.getElementById('nt_admin_email')||{}).value.trim(),
     activo: true, createdAt: nowTs()

@@ -6,15 +6,15 @@ async function cargarDatosDemostracion(){
   if(!estaActivo()){
     const demoExiste=u.find(function(x){return x.username==='demo';});
     if(!demoExiste){
-      await dbAdd('usuarios',{nombre:'Demo Admin',username:'demo',passwordHash:hashSimple('demo123'),
+      await dbAdd('usuarios',{nombre:'Demo Admin',username:'demo',passwordHash:await hashPassword('demo123'),
         esDemo:true,perfil:'admin',email:'admin@taller.com',activo:true,createdAt:nowTs()});
     }
   }
   if(u.length>0)return;
   // Primera vez: crear usuarios de ejemplo adicionales
-  await dbAdd('usuarios',{nombre:'Supervisor Taller',username:'supervisor',passwordHash:hashSimple('super123'),
+  await dbAdd('usuarios',{nombre:'Supervisor Taller',username:'supervisor',passwordHash:await hashPassword('super123'),
     perfil:'supervisor',email:'supervisor@taller.com',activo:true,createdAt:nowTs()});
-  await dbAdd('usuarios',{nombre:'Operador 1',username:'operador',passwordHash:hashSimple('oper123'),
+  await dbAdd('usuarios',{nombre:'Operador 1',username:'operador',passwordHash:await hashPassword('oper123'),
     perfil:'operador',email:'operador@taller.com',activo:true,createdAt:nowTs()});
   // Empleados demo
   await dbAdd('empleados',{nombre:'Carlos M\u00E9ndez L\u00F3pez',cargo:'Mec\u00E1nico senior',salarioBase:5500,dpi:'1234567890101',fechaIngreso:'2021-03-15',telefono:'+502 5555-1111',activo:true,tipoContrato:'indefinido',createdAt:nowTs()});
@@ -304,9 +304,8 @@ async function sugerirMantenimiento(vehiculoId){
 }
 
 
-var SAL_MIN={CE1:{noAgricola:4002.28,agricola:3791.20,maquila:3409.73},CE2:{noAgricola:3816.90,agricola:3625.89,maquila:3221.10}};
 var BONIF_DECRETO=250;
-function calcISREmpleado(salAnual,igssAnual){var base=salAnual-48000-igssAnual;if(base<=0)return 0;if(base<=300000)return base*0.05;return 15000+(base-300000)*0.07;}
+function calcISRAnualBruto(salAnual,igssAnual){var base=salAnual-48000-igssAnual;if(base<=0)return 0;if(base<=300000)return base*0.05;return 15000+(base-300000)*0.07;}
 function calcProvisionesMensuales(sal){sal=sal||0;return{bono14:sal/12,aguinaldo:sal/12,vacaciones:(sal/30)*15/12,indemnizacion:sal/12,igssPatronal:sal*0.1267,irtra:sal*0.01,intecap:sal*0.01};}
 function provisionTotal(sal){var p=calcProvisionesMensuales(sal);return p.bono14+p.aguinaldo+p.vacaciones+p.indemnizacion+p.igssPatronal+p.irtra+p.intecap;}
 
@@ -579,7 +578,7 @@ async function renderNomina(content,actions){
   var filas=activos.map(function(e){
     var sal=e.salarioBase||0;
     var igssE=sal*0.0483;
-    var isrA=calcISREmpleado(sal*12,igssE*12);
+    var isrA=calcISRAnualBruto(sal*12,igssE*12);
     var isrM=isrA/12;
     var bonif=BONIF_DECRETO+(e.bonificacionAdicional||0);
     var neto=sal+bonif-igssE-isrM-(e.descuentoAdicional||0);
@@ -773,7 +772,7 @@ async function modalUsuario(id) {
         timeoutMinutos: toMin,
         updatedAt: nowTs()
       };
-      if (pass) obj.passwordHash = hashSimple(pass);
+      if (pass) obj.passwordHash = await hashPassword(pass);
       if (id) {
         obj.id = id;
         if (!obj.passwordHash) { var ex = await dbGet('usuarios',id); obj.passwordHash = ex.passwordHash; }

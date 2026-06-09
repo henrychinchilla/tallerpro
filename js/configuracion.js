@@ -70,7 +70,7 @@ async function renderConfiguracion(content, actions) {
   var lph = document.getElementById('logo_placeholder');
   if (lph && logoData) lph.style.display = 'none';
   // Agregar sección zona de peligro
-  var cfgContent = document.getElementById('main-content') || document.querySelector('.main-content');
+  var cfgContent = content;
   var dangerCard = document.createElement('div');
   dangerCard.className = 'card';
   dangerCard.style.cssText = 'margin-top:12px;border:1px solid rgba(224,90,78,.35)';
@@ -422,7 +422,7 @@ async function registrarPagoFac(facId, total, forma, posData) {
   await dbPut('facturas', fac);
   toast('Factura marcada como pagada ✓');
   if (window._facPagoCallback) window._facPagoCallback();
-  await navTo('facturacion');
+  await navTo('facturas');
 }
 
 // ── Render configuración POS ─────────────────────────────────────

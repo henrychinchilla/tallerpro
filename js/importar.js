@@ -1465,8 +1465,8 @@ async function resetearBaseDatos() {
     // Asegurar que demo/admin existen con sus passwords originales
     var hayDemo  = usuariosBackup.find(function(u){ return u.username==='demo'; });
     var hayAdmin = usuariosBackup.find(function(u){ return u.username==='admin'; });
-    if (!hayDemo) usuariosBackup.push({nombre:'Demo Admin',username:'demo',passwordHash:hashSimple('demo123'),esDemo:true,perfil:'admin',activo:true,createdAt:nowTs()});
-    if (!hayAdmin) usuariosBackup.push({nombre:'Administrador',username:'admin',passwordHash:hashSimple('admin123'),esDemo:false,perfil:'admin',activo:true,createdAt:nowTs()});
+    if (!hayDemo) usuariosBackup.push({nombre:'Demo Admin',username:'demo',passwordHash:await hashPassword('demo123'),esDemo:true,perfil:'admin',activo:true,createdAt:nowTs()});
+    if (!hayAdmin) usuariosBackup.push({nombre:'Administrador',username:'admin',passwordHash:await hashPassword('admin123'),esDemo:false,perfil:'admin',activo:true,createdAt:nowTs()});
     for (var j=0; j<usuariosBackup.length; j++) {
       var u = Object.assign({}, usuariosBackup[j]);
       delete u.id; // dejar que autoIncrement asigne nuevo id

@@ -80,63 +80,13 @@ async function renderUsuarios(content,actions){
   `;
 }
 
-async function modalUsuario(id=null){
-  if(!soloAdmin()){toast('Solo administradores','red');return;}
-  const u=id?await dbGet('usuarios',id):{};
-  openModal('modalUsuario',id?'Editar Usuario':'Nuevo Usuario',`
-    <div class="form-row form-row-2">
-      <div class="form-group"><label>Nombre completo *</label><input id="u_nom" value="${u.nombre||''}" placeholder="Nombre del usuario"></div>
-      <div class="form-group"><label>Usuario (login) *</label><input id="u_usr" value="${u.username||''}" placeholder="sin espacios" ${id&&u.username==='admin'?'readonly':''}></div>
-    </div>
-    <div class="form-row form-row-2">
-      <div class="form-group"><label>Email</label><input id="u_email" type="email" value="${u.email||''}" placeholder="correo@taller.com"></div>
-      <div class="form-group"><label>Tel\u00E9fono</label><input id="u_tel" value="${u.telefono||''}" placeholder="+502 5555-0000" onblur="onTelBlur(this)"></div>
-    </div>
-    <div class="form-row form-row-2">
-      <div class="form-group"><label>Perfil *</label>
-        <select id="u_perfil" ${id&&u.username==='admin'?'disabled':''}>
-          <option value="operador" ${u.perfil==='operador'?'selected':''}>Operador \u2014 Ingreso de datos b\u00E1sico</option>
-          <option value="supervisor" ${u.perfil==='supervisor'?'selected':''}>Supervisor \u2014 Gesti\u00F3n intermedia</option>
-          <option value="admin" ${u.perfil==='admin'?'selected':''}>Administrador \u2014 Acceso total</option>
-        </select>
-      </div>
-      <div class="form-group"><label>${id?'Nueva contrase\u00F1a (dejar vac\u00EDo = sin cambio)':'Contrase\u00F1a *'}</label>
-        <input id="u_pass" type="password" placeholder="${id?'Nueva contrase\u00F1a':'Contrase\u00F1a inicial'}">
-      </div>
-    </div>
-    ${id?`<div class="form-group"><label><input type="checkbox" id="u_activo" ${u.activo!==false?'checked':''} style="width:auto;margin-right:6px">Usuario activo</label></div>`:''}
-    <div class="form-group"><label>Cargo / Puesto</label><input id="u_cargo" value="${u.cargo||''}" placeholder="Mec\u00E1nico, Contador, Gerente..."></div>
-  `,async()=>{
-    const nombre=document.getElementById('u_nom').value.trim();
-    const username=document.getElementById('u_usr').value.trim().toLowerCase().replace(/\s/g,'');
-    const pass=document.getElementById('u_pass').value;
-    if(!nombre||!username){toast('Nombre y usuario requeridos','red');return;}
-    if(!id&&!pass){toast('Contrase\u00F1a requerida para nuevo usuario','red');return;}
-    const obj={
-      nombre,username,
-      perfil:document.getElementById('u_perfil').value,
-      email:document.getElementById('u_email').value,
-      telefono:document.getElementById('u_tel').value,
-      cargo:document.getElementById('u_cargo').value,
-      activo:id?(document.getElementById('u_activo')?.checked!==false):true,
-      updatedAt:nowTs()
-    };
-    if(pass)obj.passwordHash=hashSimple(pass);
-    if(id){obj.id=id;if(!obj.passwordHash)delete obj.passwordHash;
-      const ex=await dbGet('usuarios',id);obj.passwordHash=obj.passwordHash||ex.passwordHash;
-      await dbPut('usuarios',obj);
-    }else{obj.createdAt=nowTs();await dbAdd('usuarios',obj);}
-    closeModal('modalUsuario');toast(id?'Usuario actualizado':'Usuario creado');
-    await navTo('usuarios');
-  });
-}
 
 async function resetPassword(id){
   if(!soloAdmin())return;
   const nueva=prompt('Nueva contrase\u00F1a para este usuario:');
   if(!nueva)return;
   const u=await dbGet('usuarios',id);
-  u.passwordHash=hashSimple(nueva);u.updatedAt=nowTs();
+  u.passwordHash=await hashPassword(nueva);u.updatedAt=nowTs();
   await dbPut('usuarios',u);toast('Contrase\u00F1a restablecida');
 }
 

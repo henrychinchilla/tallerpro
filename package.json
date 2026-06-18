@@ -1,0 +1,18 @@
+{
+  "name": "tallerpro",
+  "version": "3.0.0",
+  "description": "TallerPro GT - Workshop Management System",
+  "main": "index.html",
+  "scripts": {
+    "build": "echo 'Static HTML project - no build needed'",
+    "test": "echo 'No tests configured'",
+    "start": "python3 -m http.server 8000"
+  },
+  "keywords": [
+    "workshop",
+    "management",
+    "taller"
+  ],
+  "author": "Henry Chinchilla",
+  "license": "MIT"
+}
